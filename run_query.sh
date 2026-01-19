@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /Users/robertdelf/gatemcp/packages/db
+cd /Users/robertdelf/sierramcp/packages/db
 DB_SECRET=$(aws secretsmanager get-secret-value --secret-id "gatemcp-production-DatabaseProxySecret-nbvwtvtt" --query 'SecretString' --output text)
 DB_USER=$(echo "$DB_SECRET" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['username'])")
 DB_PASS=$(echo "$DB_SECRET" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['password'])")
