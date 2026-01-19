@@ -1,0 +1,1527 @@
+// SierraMCP Database Schema
+// MCP (Model Context Protocol) Management Platform
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema", "postgresqlExtensions"]
+  binaryTargets   = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [uuid_ossp(map: "uuid-ossp"), vector]
+}
+
+// ============================================
+// TENANT MANAGEMENT
+// ============================================
+
+model Tenant {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // ============================================
+  // CORE INFORMATION
+  // ============================================
+  name        String // Display/trading name
+  legalName   String? // Legal entity name
+  slug        String       @unique // e.g., "acme-corp" for subdomain routing
+  description String? // Company description
+  industry    String? // Industry/sector
+  companySize CompanySize? // Number of employees tier
+
+  // Domain-based provisioning
+  primaryDomain String? @unique // e.g., "acme.com" parsed from email
+
+  // ============================================
+  // ADDRESS & CONTACT
+  // ============================================
+  // Registered/Legal Address
+  legalAddressLine1 String?
+  legalAddressLine2 String?
+  legalCity         String?
+  legalState        String?
+  legalPostalCode   String?
+  legalCountry      String?
+
+  // Operating Address (if different)
+  operatingAddressLine1 String?
+  operatingAddressLine2 String?
+  operatingCity         String?
+  operatingState        String?
+  operatingPostalCode   String?
+  operatingCountry      String?
+
+  // Timezone & Locale
+  timezone        String @default("America/New_York")
+  defaultLanguage String @default("en")
+
+  // Contact Information
+  primaryContactName  String?
+  primaryContactEmail String?
+  supportEmail        String?
+  phone               String?
+
+  // ============================================
+  // BRANDING & CUSTOMIZATION
+  // ============================================
+  logoUrl           String? // Company logo URL
+  faviconUrl        String? // Favicon URL
+  primaryColor      String? // Hex color e.g., "#3B82F6"
+  secondaryColor    String? // Hex color
+  customDomain      String? @unique // Custom domain/subdomain
+  emailSenderName   String? // Email sender display name
+  emailSenderDomain String? // Verified sender domain
+
+  // ============================================
+  // SYSTEM METADATA
+  // ============================================
+  status        TenantStatus      @default(ACTIVE)
+  environment   TenantEnvironment @default(PRODUCTION)
+  dataResidency String            @default("us-east-1") // AWS region
+  featureFlags  Json              @default("{}") // Enabled features/modules
+  rateLimits    Json              @default("{}") // Usage caps
+
+  // ============================================
+  // BILLING & SUBSCRIPTION
+  // ============================================
+  billingStatus         BillingStatus @default(NOT_CONFIGURED)
+  subscriptionPlan      String? // e.g., "starter", "professional", "enterprise"
+  subscriptionStatus    String? // e.g., "active", "trialing", "past_due"
+  stripeCustomerId      String?       @unique
+  stripeSubscriptionId  String?       @unique
+  stripePaymentMethodId String? // Token reference
+
+  // Billing Contact
+  billingContactName  String?
+  billingContactEmail String?
+  billingAddressLine1 String?
+  billingAddressLine2 String?
+  billingCity         String?
+  billingState        String?
+  billingPostalCode   String?
+  billingCountry      String?
+
+  // Tax Information
+  taxId     String? // Tax ID / VAT number
+  taxExempt Boolean @default(false)
+
+  // ============================================
+  // COMPLIANCE & LEGAL
+  // ============================================
+  legalEntityType         String? // e.g., "LLC", "Corporation", "Sole Proprietorship"
+  privacyPolicyAcceptedAt DateTime?
+  termsAcceptedAt         DateTime?
+  dpaStatus               DpaStatus @default(NOT_REQUIRED)
+  complianceTags          Json      @default("[]") // e.g., ["GDPR", "SOC2", "HIPAA"]
+
+  // ============================================
+  // SETTINGS & METADATA
+  // ============================================
+  settings Json @default("{}") // Additional flexible settings
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ============================================
+  // RELATIONS
+  // ============================================
+  users           User[]
+  invitations     Invitation[]
+  apiKeys         ApiKey[]
+  joinRequests    JoinRequest[]
+  mcps            Mcp[]
+  secrets         Secret[]
+  usageEvents     UsageEvent[]
+  usageAggregates UsageAggregate[]
+  auditLogs       AuditLog[]
+
+  // Applications & Tools
+  applications Application[]
+  tools        Tool[]
+
+  // Deployments & Chat
+  deployments Deployment[]
+  botProfiles BotProfile[]
+  chatRoutes  ChatRoute[]
+
+  @@map("tenants")
+}
+
+enum BillingStatus {
+  NOT_CONFIGURED
+  ACTIVE
+  PAYMENT_FAILED
+  SUSPENDED
+}
+
+enum CompanySize {
+  SOLO // 1 person
+  SMALL // 2-10 employees
+  MEDIUM // 11-50 employees
+  LARGE // 51-200 employees
+  ENTERPRISE // 201-1000 employees
+  CORPORATION // 1000+ employees
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum TenantEnvironment {
+  PRODUCTION
+  SANDBOX
+  TRIAL
+}
+
+enum DpaStatus {
+  NOT_REQUIRED
+  PENDING
+  SIGNED
+  EXPIRED
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+model User {
+  id        String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email     String
+  name      String?
+  avatarUrl String?
+
+  // User preferences
+  timezone String? @default("America/New_York")
+  language String? @default("en")
+
+  // Auth - support both password and OAuth
+  passwordHash  String? // For email/password auth (bcrypt)
+  emailVerified DateTime? // Timestamp when email was verified
+  googleId      String?   @unique // Google OAuth sub (legacy)
+  workosId      String?   @unique // WorkOS User ID
+
+  // Legacy Cognito reference (nullable for migration)
+  cognitoSub String? @unique
+
+  // Tenant membership (nullable until approved for join requests)
+  tenantId String?  @db.Uuid
+  tenant   Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role     UserRole @default(MEMBER)
+
+  // Status
+  status      UserStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  createdMcps          Mcp[]         @relation("McpCreator")
+  joinRequests         JoinRequest[]
+  reviewedJoinRequests JoinRequest[] @relation("JoinRequestReviewer")
+
+  // Applications & Tools
+  createdApplications Application[] @relation("ApplicationCreator")
+  createdTools        Tool[]        @relation("ToolCreator")
+
+  @@unique([tenantId, email])
+  @@index([email])
+  @@index([googleId])
+  @@index([workosId])
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER // Full access, can delete tenant
+  ADMIN // Can manage users, settings, billing
+  MEMBER // Standard access, can create MCPs
+  READONLY // View only
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED // Accepted invite but hasn't completed setup
+  SUSPENDED
+}
+
+// ============================================
+// EMAIL VERIFICATION & PASSWORD RESET
+// ============================================
+
+model VerificationCode {
+  id        String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email     String
+  code      String // 6-digit code
+  type      VerificationCodeType
+  attempts  Int                  @default(0) // Track failed attempts (max 5)
+  expiresAt DateTime // 10 minutes from creation
+  usedAt    DateTime?
+  createdAt DateTime             @default(now())
+
+  @@unique([email, type])
+  @@index([code, email])
+  @@map("verification_codes")
+}
+
+enum VerificationCodeType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+// ============================================
+// JOIN REQUESTS (Domain-based provisioning)
+// ============================================
+
+model JoinRequest {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // The user requesting to join
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email  String // Denormalized for display
+
+  // The tenant they want to join
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Request status
+  status JoinRequestStatus @default(PENDING)
+
+  // Review info
+  decidedById String?   @db.Uuid
+  decidedBy   User?     @relation("JoinRequestReviewer", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+
+  requestedAt DateTime @default(now())
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, status])
+  @@map("join_requests")
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+// ============================================
+// INVITATIONS
+// ============================================
+
+model Invitation {
+  id    String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email String
+  role  UserRole @default(MEMBER)
+  token String   @unique @default(dbgenerated("uuid_generate_v4()"))
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  invitedById String? @db.Uuid
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, email])
+  @@index([token])
+  @@map("invitations")
+}
+
+// ============================================
+// API KEYS (for programmatic access)
+// ============================================
+
+model ApiKey {
+  id   String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name String
+
+  // Store hashed key, prefix for identification
+  keyHash   String @unique
+  keyPrefix String // First 8 chars for display: "sk_live_abc..."
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Permissions (JSON array of allowed scopes)
+  scopes Json @default("[\"read\"]")
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([keyPrefix])
+  @@map("api_keys")
+}
+
+// ============================================
+// MCP CONFIGURATION
+// ============================================
+
+model Mcp {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String
+  description String?
+  type        McpType
+  status      McpStatus @default(DRAFT)
+
+  // Configuration stored as JSON
+  // For API: { baseUrl, authType, headers, params, testEndpoint }
+  // For DOCUMENTATION: { fileUrl, fileType, rawText }
+  // For HYBRID: combination of both
+  configJson Json @default("{}")
+
+  // Tenant scoping
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Creator reference
+  createdById String @db.Uuid
+  createdBy   User   @relation("McpCreator", fields: [createdById], references: [id])
+
+  // Usage tracking
+  lastUsedAt DateTime?
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  secrets         Secret[]
+  usageEvents     UsageEvent[]
+  usageAggregates UsageAggregate[]
+  versions        McpVersion[]
+  tools           McpTool[]
+  configFields    McpConfigField[]
+  secretSlots     McpSecretSlot[]
+  deployments     Deployment[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("mcps")
+}
+
+// ============================================
+// MCP VERSIONS
+// ============================================
+// Immutable version snapshots for reproducible deployments.
+// Each version captures the complete MCP state at publish time.
+
+model McpVersion {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Semantic version (e.g., "1.0.0", "1.2.3")
+  version String
+
+  // Docker image reference
+  imageUri    String? // e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com/mcp:v1.0.0"
+  imageDigest String? // SHA256 digest for immutability
+
+  // Changelog / release notes
+  changelog String? @db.Text
+
+  // Version status
+  status McpVersionStatus @default(DRAFT)
+
+  // Snapshot of config at publish time (immutable)
+  configSnapshot Json @default("{}")
+
+  publishedAt  DateTime?
+  deprecatedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  deployments Deployment[]
+  tools       McpTool[]
+
+  @@unique([mcpId, version])
+  @@index([mcpId])
+  @@index([mcpId, status])
+  @@map("mcp_versions")
+}
+
+enum McpVersionStatus {
+  DRAFT
+  PUBLISHED
+  DEPRECATED
+}
+
+// ============================================
+// MCP TOOLS (Tool references within an MCP)
+// ============================================
+// Maps Application Tools into an MCP with pinned versions.
+// Distinct from Tool model (which belongs to Applications).
+
+model McpTool {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Optional: pin to specific MCP version (null = all versions)
+  versionId String?     @db.Uuid
+  version   McpVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  // Reference to the actual tool
+  toolId String @db.Uuid
+
+  // Pinned tool version (null = latest)
+  pinnedToolVersion Int?
+
+  // Enable/disable individual tools
+  enabled Boolean @default(true)
+
+  // Display ordering
+  ordering Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([mcpId, toolId, versionId])
+  @@index([mcpId])
+  @@index([versionId])
+  @@map("mcp_tools")
+}
+
+// ============================================
+// MCP CONFIG FIELDS (Dynamic configuration)
+// ============================================
+// Defines configuration fields required by an MCP.
+// Values are provided at deployment time.
+
+model McpConfigField {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Field definition
+  key         String // e.g., "API_ENDPOINT", "MAX_RETRIES"
+  type        ConfigFieldType @default(STRING)
+  label       String // Human-readable label
+  description String?
+
+  // Validation
+  required     Boolean @default(false)
+  defaultValue String?
+
+  // Validation rules (JSON)
+  // e.g., { "minLength": 1, "maxLength": 255, "pattern": "^https://" }
+  validation Json @default("{}")
+
+  // Display ordering
+  ordering Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([mcpId, key])
+  @@index([mcpId])
+  @@map("mcp_config_fields")
+}
+
+enum ConfigFieldType {
+  STRING
+  NUMBER
+  BOOLEAN
+  SECRET // References a secret slot
+  JSON
+  URL
+}
+
+// ============================================
+// MCP SECRET SLOTS (Secret mappings)
+// ============================================
+// Maps logical secret slots to actual secrets in Secrets Manager.
+// Allows different secrets per environment/deployment.
+
+model McpSecretSlot {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Slot identifier (e.g., "API_KEY", "DATABASE_PASSWORD")
+  slot String
+
+  // AWS Secrets Manager reference
+  secretArn String?
+
+  // Rotation tracking
+  lastRotated      DateTime?
+  rotationSchedule String? // Cron expression for auto-rotation
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([mcpId, slot])
+  @@index([mcpId])
+  @@map("mcp_secret_slots")
+}
+
+// ============================================
+// DEPLOYMENTS (ECS Fargate Runtime)
+// ============================================
+// Each deployment is an ECS Fargate service running an MCP version.
+// Supports multiple environments (dev, staging, production).
+
+model Deployment {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // Parent MCP
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Pinned version (null = latest)
+  mcpVersionId String?     @db.Uuid
+  mcpVersion   McpVersion? @relation(fields: [mcpVersionId], references: [id], onDelete: SetNull)
+
+  // Tenant scoping
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Deployment identity
+  name        String // e.g., "production", "staging-west"
+  environment DeploymentEnv @default(DEVELOPMENT)
+
+  // Compute configuration
+  computeProfile ComputeProfile @default(SMALL)
+  minTasks       Int            @default(1)
+  maxTasks       Int            @default(3)
+  desiredTasks   Int            @default(1)
+
+  // Deployment status
+  status DeploymentStatus @default(PENDING)
+
+  // AWS infrastructure references
+  endpointUrl       String? // e.g., "https://mcp-xyz.sierramcp.com/sse"
+  albArn            String?
+  targetGroupArn    String?
+  ecsServiceArn     String?
+  ecsClusterArn     String?
+  taskDefinitionArn String?
+
+  // Health monitoring
+  health          DeploymentHealth @default(UNKNOWN)
+  lastHealthCheck DateTime?
+  healthCheckPath String           @default("/health")
+
+  // Config values (from McpConfigField) for this deployment
+  configValues Json @default("{}")
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deployedAt DateTime?
+  deletedAt  DateTime?
+
+  // Relations
+  events          DeploymentEvent[]
+  routes          ChatRoute[]
+  usageEvents     UsageEvent[]
+  usageAggregates UsageAggregate[]
+
+  @@unique([tenantId, mcpId, name])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([mcpId])
+  @@map("deployments")
+}
+
+enum DeploymentEnv {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum ComputeProfile {
+  SMALL // 0.25 vCPU, 512 MB
+  MEDIUM // 0.5 vCPU, 1 GB
+  LARGE // 1 vCPU, 2 GB
+  XLARGE // 2 vCPU, 4 GB
+}
+
+enum DeploymentStatus {
+  PENDING // Created, waiting to deploy
+  PROVISIONING // Infrastructure being created
+  DEPLOYING // Container starting
+  RUNNING // Healthy and serving traffic
+  UPDATING // Rolling update in progress
+  SCALING // Scaling tasks up/down
+  DRAINING // Removing from load balancer
+  STOPPED // Manually stopped
+  FAILED // Deployment failed
+  DELETED // Soft deleted
+}
+
+enum DeploymentHealth {
+  UNKNOWN
+  HEALTHY
+  UNHEALTHY
+  DEGRADED // Some tasks unhealthy
+}
+
+// ============================================
+// DEPLOYMENT EVENTS (Audit log)
+// ============================================
+// Tracks all deployment lifecycle events for debugging and audit.
+
+model DeploymentEvent {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  deploymentId String     @db.Uuid
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  // Event details
+  type     DeploymentEventType
+  message  String
+  metadata Json                @default("{}")
+
+  // Who triggered (null for system events)
+  triggeredById String? @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([deploymentId])
+  @@index([deploymentId, createdAt])
+  @@map("deployment_events")
+}
+
+enum DeploymentEventType {
+  CREATED
+  STARTED
+  DEPLOYED
+  SCALED
+  UPDATED
+  HEALTH_CHECK
+  ERROR
+  STOPPED
+  DELETED
+  ROLLBACK
+}
+
+// ============================================
+// BOT PROFILES (Chat customization)
+// ============================================
+// Defines bot personality, behavior, and appearance for chat platforms.
+
+model BotProfile {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Identity
+  name        String // Internal name: "support-bot"
+  displayName String // Shown in chat: "Sierra Support"
+  avatarUrl   String? // Bot avatar image
+
+  // Behavior configuration
+  systemPrompt  String?       @db.Text // Custom system prompt
+  responseStyle ResponseStyle @default(PROFESSIONAL)
+  toolBehavior  ToolBehavior  @default(AUTO)
+
+  // Feature flags
+  enableStreaming Boolean @default(true)
+  enableCitations Boolean @default(true)
+  maxTokens       Int     @default(4096)
+
+  // Model preferences
+  modelId String? // Override default model
+
+  // Status
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  routes ChatRoute[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("bot_profiles")
+}
+
+enum ResponseStyle {
+  PROFESSIONAL // Formal, business-appropriate
+  FRIENDLY // Casual, conversational
+  CONCISE // Brief, to the point
+  TECHNICAL // Detailed, precise
+}
+
+enum ToolBehavior {
+  AUTO // Execute tools automatically
+  MANUAL // Require @tool syntax
+  CONFIRM // Ask before executing
+}
+
+// ============================================
+// CHAT ROUTES (Slack/Teams channel bindings)
+// ============================================
+// Maps chat platform channels to deployments and bot profiles.
+// Supports workspace-level fallback routes.
+
+model ChatRoute {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Chat platform
+  platform ChatPlatform
+
+  // Workspace/Team identification
+  workspaceId   String // Slack workspace ID or Teams tenant ID
+  workspaceName String? // Human-readable workspace name
+
+  // Channel (null for workspace fallback)
+  channelId   String? // Slack channel ID or Teams channel ID
+  channelName String? // Human-readable channel name
+
+  // Target deployment (null for fallback = "no MCP available" message)
+  deploymentId String?     @db.Uuid
+  deployment   Deployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+
+  // Bot profile
+  botProfileId String     @db.Uuid
+  botProfile   BotProfile @relation(fields: [botProfileId], references: [id])
+
+  // Route behavior
+  isFallback Boolean @default(false) // True = workspace-level fallback
+  isActive   Boolean @default(true)
+
+  // Priority (higher = checked first)
+  priority Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, platform, workspaceId, channelId])
+  @@index([tenantId])
+  @@index([tenantId, platform, workspaceId])
+  @@index([deploymentId])
+  @@map("chat_routes")
+}
+
+enum ChatPlatform {
+  SLACK
+  TEAMS
+}
+
+enum McpType {
+  API
+  DOCUMENTATION
+  HYBRID
+}
+
+enum McpStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+// ============================================
+// SECRETS (Encrypted at rest)
+// ============================================
+
+model Secret {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // Reference to MCP
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Tenant scoping (denormalized for RLS if needed)
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Secret data
+  keyName        String // e.g., "API_KEY", "OAUTH_SECRET"
+  encryptedValue Bytes // AES-256-GCM encrypted
+  lastFourChars  String? // Last 4 chars for display (optional)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([mcpId, keyName])
+  @@index([tenantId])
+  @@map("secrets")
+}
+
+// ============================================
+// USAGE TRACKING
+// ============================================
+
+model UsageEvent {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // References
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Optional deployment reference (for per-deployment metering)
+  deploymentId String?     @db.Uuid
+  deployment   Deployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+
+  // Event data
+  timestamp    DateTime @default(now())
+  requestCount Int      @default(1)
+  success      Boolean  @default(true)
+  errorMessage String?
+
+  // Optional metrics
+  latencyMs  Int?
+  tokenCount Int?
+
+  // Chat context (for Slack/Teams routing)
+  platform    String? // "slack", "teams"
+  workspaceId String?
+  channelId   String?
+  userId      String? // Platform user ID
+
+  // Additional metadata
+  metadata Json @default("{}")
+
+  @@index([tenantId, timestamp])
+  @@index([mcpId, timestamp])
+  @@index([tenantId, mcpId, timestamp])
+  @@index([deploymentId, timestamp])
+  @@map("usage_events")
+}
+
+model UsageAggregate {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // References
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  mcpId String @db.Uuid
+  mcp   Mcp    @relation(fields: [mcpId], references: [id], onDelete: Cascade)
+
+  // Optional deployment reference (for per-deployment aggregation)
+  deploymentId String?     @db.Uuid
+  deployment   Deployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+
+  // Aggregation period (daily)
+  date DateTime @db.Date
+
+  // Aggregated metrics
+  totalRequests  Int @default(0)
+  successCount   Int @default(0)
+  errorCount     Int @default(0)
+  totalLatencyMs Int @default(0)
+  totalTokens    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, mcpId, deploymentId, date])
+  @@index([tenantId, date])
+  @@index([mcpId, date])
+  @@index([deploymentId, date])
+  @@map("usage_aggregates")
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String? @db.Uuid
+
+  action     String // e.g., "mcp.created", "user.role_changed", "billing.updated"
+  entityType String // e.g., "Mcp", "User", "JoinRequest"
+  entityId   String?
+
+  // Store the changes
+  metadata Json @default("{}")
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ============================================
+// BLOCKED SIGNUPS (Personal email tracking)
+// ============================================
+
+model BlockedSignup {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  email       String // The email that was blocked
+  domain      String // The email domain (e.g., "gmail.com")
+  workosId    String? // WorkOS user ID before deletion
+  reason      String // e.g., "personal_email", "banned_domain"
+
+  // Optional user info from WorkOS
+  name        String?
+
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([email])
+  @@index([domain])
+  @@index([createdAt])
+  @@map("blocked_signups")
+}
+
+// ============================================
+// APPLICATION TEMPLATES (20 predefined)
+// ============================================
+
+model ApplicationTemplate {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  slug        String   @unique // "salesforce", "zendesk", etc.
+  name        String
+  category    String // "CRM", "Support", "Communication"
+  description String?
+  logoUrl     String?
+  authTypes   String[] @default([]) // Supported auth types
+  docsUrl     String? // Link to official docs
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // ============================================
+  // TEMPLATE CONFIGURATION (pre-built settings)
+  // ============================================
+  // Default API base URL for this service
+  defaultBaseUrl    String?
+  // Recommended auth type for this service
+  defaultAuthType   AuthType?
+  // Auth configuration (OAuth token URLs, scopes, etc.)
+  authConfig        Json?     @default("{}")
+  // Pre-defined tools that come with this template
+  defaultTools      Json?     @default("[]")
+  // Documentation URLs to auto-fetch when creating from template
+  documentationUrls String[]  @default([])
+
+  applications Application[]
+
+  @@map("application_templates")
+}
+
+// ============================================
+// APPLICATIONS
+// ============================================
+
+model Application {
+  id          String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String
+  description String?
+  slug        String // Unique within tenant
+  logoUrl     String? // Custom logo URL (S3 or external)
+
+  // Template reference (null for custom)
+  templateId String?              @db.Uuid
+  template   ApplicationTemplate? @relation(fields: [templateId], references: [id])
+
+  // Status
+  status ApplicationStatus @default(DRAFT)
+
+  // Tenant scoping
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Creator
+  createdById String @db.Uuid
+  createdBy   User   @relation("ApplicationCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  environments ApplicationEnvironment[]
+  documents    ApplicationDocument[]
+  tools        Tool[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("applications")
+}
+
+enum ApplicationStatus {
+  DRAFT
+  CONFIGURING
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+// ============================================
+// APPLICATION ENVIRONMENTS
+// ============================================
+
+model ApplicationEnvironment {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  applicationId String      @db.Uuid
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Environment type
+  environment EnvironmentType
+  baseUrl     String
+
+  // Authentication type selector
+  authType AuthType
+
+  // ============================================
+  // AUTH CONFIG - NON-SECRET METADATA ONLY
+  // ============================================
+  // This field stores PUBLIC authentication metadata. NEVER store secrets here.
+  // Allowed values:
+  //   - scopes: OAuth scopes (e.g., ["read", "write"])
+  //   - authUrl: OAuth authorization URL
+  //   - tokenUrl: OAuth token URL
+  //   - headerName: Custom header name (e.g., "X-API-Key")
+  //   - headerPrefix: Header value prefix (e.g., "Bearer")
+  //   - queryParamName: Query parameter name for API key auth
+  //   - clientId: OAuth client ID (public, not secret)
+  //   - audience: OAuth audience
+  //   - grantType: OAuth grant type (e.g., "client_credentials")
+  // Example: { "scopes": ["read:users"], "headerName": "X-API-Key" }
+  authConfig Json @default("{}")
+
+  // ============================================
+  // SECRET REFERENCE - THE ONLY PLACE SECRETS LIVE
+  // ============================================
+  // AWS Secrets Manager ARN containing actual credentials.
+  // Secret JSON structure varies by authType:
+  //   API_KEY:       { "apiKey": "sk-..." }
+  //   OAUTH2:        { "clientSecret": "...", "refreshToken": "..." }
+  //   BASIC:         { "username": "...", "password": "..." }
+  //   BEARER:        { "token": "..." }
+  //   CUSTOM_HEADER: { "headerValue": "..." }
+  //   MTLS:          { "certificate": "...", "privateKey": "..." }
+  // IMPORTANT: Application code must ONLY read secrets from Secrets Manager,
+  // never from authConfig or any other database field.
+  secretArn String?
+
+  // Status
+  isActive       Boolean   @default(true)
+  lastTestedAt   DateTime?
+  lastTestStatus String? // "OK" | error message | null
+
+  // Tenant scoping (denormalized for RLS)
+  tenantId String @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  toolExecutions ToolExecution[]
+
+  @@unique([applicationId, environment])
+  @@index([tenantId])
+  @@map("application_environments")
+}
+
+enum EnvironmentType {
+  PRODUCTION
+  SANDBOX
+  DEVELOPMENT
+}
+
+enum AuthType {
+  API_KEY
+  OAUTH2
+  BASIC
+  BEARER
+  CUSTOM_HEADER
+  MTLS
+  NONE
+}
+
+// ============================================
+// APPLICATION DOCUMENTS (for RAG)
+// ============================================
+// DEDUPLICATION STRATEGY:
+// Documents are deduplicated by SHA-256 hash of normalized content.
+// Re-uploaded identical content MUST NOT re-embed.
+//
+// Normalization rules before hashing:
+//   1. Trim whitespace
+//   2. Normalize line endings to \n
+//   3. Remove BOM if present
+//   4. For URLs: hash the fetched content, not the URL itself
+//
+// On duplicate detection:
+//   - Return existing document ID
+//   - Skip embedding pipeline
+//   - Log for metrics (track dedup savings)
+// ============================================
+
+model ApplicationDocument {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  applicationId String      @db.Uuid
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Document source
+  sourceType DocumentSourceType
+  sourceUrl  String? // URL if link-based
+  s3Key      String? // S3 key if uploaded
+  fileName   String?
+  mimeType   String?
+  fileSize   Int? // bytes
+
+  // ============================================
+  // CONTENT HASH FOR DEDUPLICATION
+  // ============================================
+  // SHA-256 hash of normalized content (hex string, 64 chars)
+  // Used to detect duplicate uploads within same application.
+  // Computed AFTER fetching/uploading, BEFORE embedding.
+  // If hash matches existing doc in same app, skip re-embedding.
+  contentHash String? // SHA-256 hex, null until content fetched
+
+  // Processing status
+  status       DocumentProcessingStatus @default(PENDING)
+  errorMessage String?
+
+  // Processing progress (for UI feedback)
+  totalChunks     Int? // Total chunks to process
+  processedChunks Int? // Chunks completed so far
+
+  // ============================================
+  // SMART PROCESSING FIELDS
+  // ============================================
+  // Detected document type (auto-detected from content)
+  detectedType String? // "openapi3", "swagger2", "postman", "graphql", "html", "markdown", "pdf"
+
+  // Crawl configuration (for URL_CRAWL source type)
+  crawlDepth   Int? // Max link depth for HTML crawling (default: 2)
+  crawlPattern String? // URL pattern to follow (e.g., "/api/*", "*.html")
+
+  // Crawl progress tracking
+  pagesDiscovered Int? // Count of pages found during crawl
+  pagesCrawled    Int? // Count of pages successfully processed
+
+  // API documentation metrics
+  endpointsFound Int? // Count of API endpoints extracted
+
+  // Metadata
+  title String?
+
+  // Tenant scoping
+  tenantId    String @db.Uuid
+  createdById String @db.Uuid
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  processedAt DateTime?
+
+  // Relations
+  chunks DocumentChunk[]
+
+  // Unique constraint: same content hash within same application = duplicate
+  @@unique([applicationId, contentHash])
+  @@index([tenantId])
+  @@index([applicationId, status])
+  @@map("application_documents")
+}
+
+enum DocumentSourceType {
+  URL // Single URL fetch
+  URL_CRAWL // Recursive URL crawl (HTML docs)
+  UPLOAD // S3 file upload
+  TEXT // Direct text input
+  OPENAPI_URL // OpenAPI spec URL
+  POSTMAN_URL // Postman collection URL
+}
+
+enum DocumentProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ============================================
+// DOCUMENT CHUNKS (with embeddings)
+// ============================================
+// RAG RETRIEVAL CONSTRAINTS (enforced in application code):
+//   - Top K: 5-8 chunks maximum per query
+//   - Scope: Same applicationId only (cross-app retrieval forbidden)
+//   - Token budget: Max 4000 tokens per retrieval (enforced pre-LLM)
+//   - Similarity threshold: Minimum 0.7 cosine similarity
+//
+// These constraints are critical for:
+//   - Cost control (fewer embeddings = lower Bedrock costs)
+//   - Safety (no cross-application data leakage)
+//   - Quality (irrelevant chunks hurt LLM performance)
+// ============================================
+
+model DocumentChunk {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  documentId String              @db.Uuid
+  document   ApplicationDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // Chunk content
+  content    String @db.Text
+  chunkIndex Int // Order within document
+  tokenCount Int? // Token count for budget enforcement
+
+  // Metadata
+  metadata Json @default("{}") // Section headers, page numbers, etc.
+
+  // Vector embedding (1536 dimensions for AWS Bedrock Titan)
+  embedding Unsupported("vector(1536)")?
+
+  // ============================================
+  // CHUNK HASH FOR EMBEDDING CACHE
+  // ============================================
+  // SHA-256 hash of normalized chunk content (64 char hex string)
+  // Used to skip re-embedding identical content across documents.
+  // Unique per tenant to enable cross-document deduplication.
+  // Normalization: trim, collapse whitespace, lowercase
+  chunkHash String? @map("chunk_hash")
+
+  // Tenant scoping (denormalized for efficient queries)
+  // IMPORTANT: Queries MUST filter by both tenantId AND applicationId
+  tenantId      String @db.Uuid
+  applicationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  // Unique constraint for embedding cache: same hash within tenant = reuse embedding
+  @@unique([tenantId, chunkHash])
+  @@index([tenantId, applicationId])
+  @@index([documentId])
+  @@map("document_chunks")
+}
+
+// ============================================
+// TOOLS
+// ============================================
+// DESIGN NOTE: Schema Duplication Awareness
+// Current design has separate fields: inputSchema, headers, queryParams, bodyTemplate
+// This is intentional for clarity but risks fragmentation.
+//
+// FUTURE IMPROVEMENT (when needed):
+//   - inputSchema becomes the single source of truth (full JSON Schema)
+//   - headers, queryParams, bodyTemplate become mapping objects that reference
+//     schema paths (e.g., { "X-Request-ID": "$ref:input.requestId" })
+//   - This consolidates validation and reduces duplication
+//
+// For now, the separate fields approach is acceptable for MVP.
+// ============================================
+
+model Tool {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  applicationId String      @db.Uuid
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // ============================================
+  // DENORMALIZED FIELDS (for querying/display)
+  // ============================================
+  name         String // snake_case: "get_customer"
+  title        String // Human readable: "Get Customer by ID"
+  displayName  String // Legacy: same as title, kept for backward compat
+  description  String     @db.Text // Full description for LLM
+  status       ToolStatus @default(DRAFT)
+  httpMethod   HttpMethod
+  pathTemplate String // e.g., "/customers/{customerId}"
+
+  // ============================================
+  // VERSIONING
+  // ============================================
+  // Each tool can have multiple versions. Version 1 is the original.
+  // When creating a new version from a published tool:
+  //   1. Find latest version by (tenantId, applicationId, name)
+  //   2. Create new record with version+1, parentToolId = published tool's id
+  //   3. New version starts as DRAFT
+  version       Int     @default(1)
+  isLatest      Boolean @default(true) // Quick flag for "get latest version" queries
+  parentToolId  String? @db.Uuid // Links to previous version for lineage
+  parentTool    Tool?   @relation("ToolVersions", fields: [parentToolId], references: [id])
+  childVersions Tool[]  @relation("ToolVersions")
+
+  // ============================================
+  // TOOLSPEC - Complete tool definition
+  // ============================================
+  // Stores the full ToolSpec JSON conforming to @repo/shared/toolspec
+  // This is the source of truth; denormalized fields above are for queries
+  spec Json @default("{}")
+
+  // ============================================
+  // SAFETY FLAGS (denormalized for quick filtering)
+  // ============================================
+  readOnly    Boolean @default(true) // GET operations
+  destructive Boolean @default(false) // DELETE or irreversible ops
+  pii         Boolean @default(false) // Handles personal data
+
+  // ============================================
+  // DOCUMENTATION SOURCES (citations)
+  // ============================================
+  // Array of { docId, chunkId, excerpt } linking to documentation
+  sources Json @default("[]")
+
+  // ============================================
+  // TEST CASES & EXAMPLES
+  // ============================================
+  testCases Json @default("[]") // Embedded test case definitions
+  examples  Json @default("{}") // Example request/response
+
+  // ============================================
+  // AUTH CONFIGURATION
+  // ============================================
+  authType   String? // oauth2, apiKey, basic, bearer, none
+  authScopes Json    @default("[]") // OAuth2 scopes if applicable
+
+  // Lifecycle timestamps
+  publishedAt  DateTime?
+  deprecatedAt DateTime?
+
+  // Tenant scoping
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdById String @db.Uuid
+  createdBy   User   @relation("ToolCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  executions  ToolExecution[]
+  testResults ToolTestResult[]
+
+  // ============================================
+  // INDEXES
+  // ============================================
+  // Primary query patterns:
+  //   - List tools for application: (tenantId, applicationId)
+  //   - Filter by status: (tenantId, applicationId, status)
+  //   - Get latest version: (tenantId, applicationId, name, isLatest)
+  //   - Unique version: (tenantId, applicationId, name, version)
+  @@unique([tenantId, applicationId, name, version])
+  @@index([tenantId, applicationId])
+  @@index([tenantId, applicationId, status])
+  @@index([tenantId, applicationId, name, isLatest])
+  @@index([applicationId, readOnly]) // Filter by safety
+  @@map("tools")
+}
+
+enum ToolStatus {
+  DRAFT
+  TESTED
+  PUBLISHED
+  DEPRECATED
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+// ============================================
+// TOOL TEST RESULTS
+// ============================================
+
+model ToolTestResult {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  toolId String @db.Uuid
+  tool   Tool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  // Test execution
+  input          Json // Test input
+  expectedOutput Json? // Expected output (if defined)
+  actualOutput   Json? // Actual response
+
+  // Result
+  success      Boolean
+  errorMessage String?
+  durationMs   Int
+
+  // Environment used
+  environmentId String? @db.Uuid
+
+  // Who ran the test
+  testedById String @db.Uuid
+
+  tenantId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([toolId])
+  @@index([tenantId])
+  @@map("tool_test_results")
+}
+
+// ============================================
+// TOOL EXECUTIONS (Runtime logs)
+// ============================================
+
+model ToolExecution {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  toolId String @db.Uuid
+  tool   Tool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  environmentId String                 @db.Uuid
+  environment   ApplicationEnvironment @relation(fields: [environmentId], references: [id])
+
+  // Execution details
+  input  Json
+  output Json?
+
+  // Metrics
+  success        Boolean
+  errorMessage   String?
+  durationMs     Int
+  httpStatusCode Int?
+
+  // Context
+  deploymentId String? @db.Uuid // Future: link to deployment
+  sessionId    String? // MCP session ID
+
+  tenantId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([toolId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("tool_executions")
+}

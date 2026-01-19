@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#0A0F41"/>
+      <stop offset="100%" stop-color="#46459E"/>
+    </linearGradient>
+    <linearGradient id="mountain" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#9788B9"/>
+      <stop offset="100%" stop-color="#D8D8D7"/>
+    </linearGradient>
+  </defs>
+  <!-- Hexagon background -->
+  <path d="M50 3 L93 27 L93 73 L50 97 L7 73 L7 27 Z" fill="url(#bg)" stroke="#8B8B8B" stroke-width="2"/>
+  <!-- Mountains -->
+  <path d="M20 70 L35 45 L42 55 L50 35 L58 55 L65 45 L80 70 Z" fill="url(#mountain)"/>
+  <!-- Circuit lines -->
+  <g stroke="#6B6BAA" stroke-width="1.5" fill="none">
+    <path d="M50 70 L50 80"/>
+    <circle cx="50" cy="82" r="3" fill="#6B6BAA"/>
+    <path d="M35 75 L35 82 L42 82"/>
+    <path d="M65 75 L65 82 L58 82"/>
+    <path d="M28 72 L28 78"/>
+    <path d="M72 72 L72 78"/>
+  </g>
+</svg>

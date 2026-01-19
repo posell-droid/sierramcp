@@ -1,0 +1,28 @@
+{
+  "name": "gatemcp",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "sst dev",
+    "build": "turbo build",
+    "deploy": "sst deploy",
+    "remove": "sst remove",
+    "db:generate": "pnpm --filter @repo/db generate",
+    "db:push": "pnpm --filter @repo/db push",
+    "db:migrate": "pnpm --filter @repo/db migrate",
+    "db:studio": "pnpm --filter @repo/db studio",
+    "db:seed": "pnpm --filter @repo/db seed",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "clean": "turbo clean && rm -rf .sst node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "sst": "3.17.25",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "pnpm": {
+    "overrides": {}
+  }
+}
