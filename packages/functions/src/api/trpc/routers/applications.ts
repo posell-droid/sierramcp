@@ -198,6 +198,11 @@ export const applicationsRouter = router({
         name: z.string().min(1).max(255),
         description: z.string().max(2000).optional(),
         templateId: z.string().uuid().optional(),
+        // Template configuration for variable substitution
+        templateConfig: z.object({
+          store: z.string().optional(),      // Shopify store name
+          realmId: z.string().optional(),    // QuickBooks company ID
+        }).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -257,13 +262,39 @@ export const applicationsRouter = router({
 
       // If template has pre-configured environment settings, create a PRODUCTION environment
       if (template?.defaultBaseUrl && template?.defaultAuthType) {
+        // Perform variable substitution for {store} and {realmId}
+        let baseUrl = template.defaultBaseUrl;
+        let authConfig = template.authConfig ?? {};
+
+        if (input.templateConfig) {
+          const { store, realmId } = input.templateConfig;
+
+          // Substitute {store} in URLs (for Shopify)
+          if (store) {
+            baseUrl = baseUrl.replace(/\{store\}/g, store);
+            if (typeof authConfig === 'object' && authConfig !== null) {
+              const authConfigStr = JSON.stringify(authConfig);
+              authConfig = JSON.parse(authConfigStr.replace(/\{store\}/g, store));
+            }
+          }
+
+          // Substitute {realmId} in URLs (for QuickBooks)
+          if (realmId) {
+            baseUrl = baseUrl.replace(/\{realmId\}/g, realmId);
+            if (typeof authConfig === 'object' && authConfig !== null) {
+              const authConfigStr = JSON.stringify(authConfig);
+              authConfig = JSON.parse(authConfigStr.replace(/\{realmId\}/g, realmId));
+            }
+          }
+        }
+
         await ctx.tenant.db.applicationEnvironment.create({
           data: {
             applicationId: application.id,
             environment: "PRODUCTION",
-            baseUrl: template.defaultBaseUrl,
+            baseUrl: baseUrl,
             authType: template.defaultAuthType,
-            authConfig: template.authConfig ?? {},
+            authConfig: authConfig,
             tenantId: ctx.tenant.tenantId,
           },
         });

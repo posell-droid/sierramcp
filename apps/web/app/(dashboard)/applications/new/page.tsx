@@ -2,43 +2,89 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Check, Search, Loader2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, Loader2, ShoppingCart, Calculator, Settings, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { toast } from "sonner"
 import { trpc } from "@/lib/trpc"
 
-type SetupMode = "template" | "custom"
+type TemplateChoice = "shopify" | "quickbooks" | "custom"
 
-interface Template {
-  id: string
-  slug: string
+interface TemplateOption {
+  id: TemplateChoice
   name: string
+  description: string
   category: string
-  description: string | null
-  logoUrl: string | null
-  authTypes: string[]
-  docsUrl: string | null
+  icon: React.ReactNode
+  logoUrl: string
+  toolCount: number
+  features: string[]
 }
+
+const templateOptions: TemplateOption[] = [
+  {
+    id: "shopify",
+    name: "Shopify",
+    description: "Connect to Shopify stores for order management, product catalog, customers, and inventory",
+    category: "E-commerce",
+    icon: <ShoppingCart className="h-6 w-6" />,
+    logoUrl: "/images/templates/shopify.svg",
+    toolCount: 25,
+    features: ["Products & Collections", "Orders & Fulfillment", "Customers", "Inventory Management"],
+  },
+  {
+    id: "quickbooks",
+    name: "QuickBooks Online",
+    description: "Connect to QuickBooks for invoicing, customers, vendors, payments, and financial reporting",
+    category: "Accounting",
+    icon: <Calculator className="h-6 w-6" />,
+    logoUrl: "/images/templates/quickbooks.svg",
+    toolCount: 30,
+    features: ["Invoices & Payments", "Customers & Vendors", "Bills & Purchases", "Chart of Accounts"],
+  },
+  {
+    id: "custom",
+    name: "Custom Application",
+    description: "Build your own MCP application from scratch with full control over tools and configuration",
+    category: "Custom",
+    icon: <Settings className="h-6 w-6" />,
+    logoUrl: "",
+    toolCount: 0,
+    features: ["Full Customization", "Any REST API", "Custom Authentication", "Manual Tool Creation"],
+  },
+]
 
 export default function NewApplicationPage() {
   const router = useRouter()
 
-  // tRPC queries and mutations
-  const { data: templates = [], isLoading: templatesLoading } = trpc.applications.listTemplates.useQuery()
-  const { data: categories = [] } = trpc.applications.getTemplateCategories.useQuery()
+  // Fetch templates from database to get their IDs
+  const { data: templates = [] } = trpc.applications.listTemplates.useQuery()
+
+  // Step management
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1)
+
+  // Step 1: Template selection
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateChoice | null>(null)
+
+  // Template configuration (collected after selection)
+  const [shopifyStore, setShopifyStore] = useState("")
+  const [quickbooksRealmId, setQuickbooksRealmId] = useState("")
+  const [customName, setCustomName] = useState("")
+  const [customDescription, setCustomDescription] = useState("")
 
   const createApplication = trpc.applications.create.useMutation({
     onSuccess: (data) => {
+      const toolCount = selectedTemplate === "shopify" ? 25 : selectedTemplate === "quickbooks" ? 30 : 0
       toast.success("Application created", {
-        description: "Now configure your environments to connect to the API",
+        description: toolCount > 0
+          ? `${toolCount} tools auto-generated. Now configure your environment credentials.`
+          : "Now configure your environments to connect to the API",
       })
       router.push(`/applications/${data.id}`)
     },
@@ -49,34 +95,64 @@ export default function NewApplicationPage() {
     },
   })
 
-  // Setup mode
-  const [setupMode, setSetupMode] = useState<SetupMode>("template")
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
-  const [customName, setCustomName] = useState("")
-  const [customDescription, setCustomDescription] = useState("")
+  // Find the database template ID for the selected template
+  const getTemplateId = (choice: TemplateChoice): string | undefined => {
+    if (choice === "custom") return undefined
+    const template = templates.find((t: { slug: string }) => t.slug === choice)
+    return template?.id
+  }
 
-  // Filters for template mode
-  const [searchQuery, setSearchQuery] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState<string>("All")
+  // Check if we can proceed from step 1 to step 2
+  const canProceedToStep2 = () => {
+    if (!selectedTemplate) return false
+    if (selectedTemplate === "shopify") return shopifyStore.trim().length > 0
+    if (selectedTemplate === "quickbooks") return quickbooksRealmId.trim().length > 0
+    if (selectedTemplate === "custom") return customName.trim().length > 0
+    return false
+  }
 
-  // Filter templates
-  const filteredTemplates = (templates as Template[]).filter((t) => {
-    const matchesSearch =
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.description || "").toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = categoryFilter === "All" || t.category === categoryFilter
-    return matchesSearch && matchesCategory
-  })
-
-  const canCreate = setupMode === "template" ? selectedTemplate !== null : customName.trim() !== ""
+  // Check if we can create (all required config provided)
+  const canCreate = canProceedToStep2()
 
   const handleCreate = async () => {
+    if (!canCreate || !selectedTemplate) return
+
+    let name: string
+    let description: string | undefined
+
+    if (selectedTemplate === "shopify") {
+      name = `Shopify - ${shopifyStore}`
+      description = `Shopify store: ${shopifyStore}.myshopify.com`
+    } else if (selectedTemplate === "quickbooks") {
+      name = `QuickBooks - ${quickbooksRealmId}`
+      description = `QuickBooks company ID: ${quickbooksRealmId}`
+    } else {
+      name = customName
+      description = customDescription || undefined
+    }
+
     createApplication.mutate({
-      name: setupMode === "template" ? selectedTemplate?.name || "" : customName,
-      description: setupMode === "template" ? selectedTemplate?.description || undefined : customDescription || undefined,
-      templateId: setupMode === "template" ? selectedTemplate?.id : undefined,
+      name,
+      description,
+      templateId: getTemplateId(selectedTemplate),
+      templateConfig: selectedTemplate === "shopify"
+        ? { store: shopifyStore }
+        : selectedTemplate === "quickbooks"
+          ? { realmId: quickbooksRealmId }
+          : undefined,
     })
   }
+
+  const handleSelectTemplate = (choice: TemplateChoice) => {
+    setSelectedTemplate(choice)
+    // Reset config when changing templates
+    setShopifyStore("")
+    setQuickbooksRealmId("")
+    setCustomName("")
+    setCustomDescription("")
+  }
+
+  const selectedOption = templateOptions.find(t => t.id === selectedTemplate)
 
   return (
     <div className="container mx-auto max-w-4xl">
@@ -98,9 +174,13 @@ export default function NewApplicationPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Choose Application Type</CardTitle>
+              <CardTitle>
+                {currentStep === 1 ? "Choose Application Type" : "Configure Application"}
+              </CardTitle>
               <CardDescription>
-                Select a template or create a custom application
+                {currentStep === 1
+                  ? "Select a pre-built template or create a custom application"
+                  : "Provide the required configuration for your application"}
               </CardDescription>
             </div>
             <Button variant="outline" onClick={() => router.push("/applications")}>
@@ -110,127 +190,179 @@ export default function NewApplicationPage() {
         </CardHeader>
 
         <CardContent>
-          <div className="space-y-6">
-            <Tabs value={setupMode} onValueChange={(v) => setSetupMode(v as SetupMode)}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="template">From Template</TabsTrigger>
-                <TabsTrigger value="custom">Custom</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="template" className="space-y-4 mt-6">
-                {/* Filters */}
-                <div className="flex flex-col gap-4 sm:flex-row">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search templates..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                    <SelectTrigger className="w-full sm:w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Categories</SelectItem>
-                      {categories.map((category: string) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Template Grid */}
-                {templatesLoading ? (
-                  <div className="flex justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {filteredTemplates.map((template) => (
-                      <Card
-                        key={template.id}
-                        className={`cursor-pointer transition-all hover:shadow-md ${
-                          selectedTemplate?.id === template.id ? "border-primary ring-2 ring-primary/20" : ""
-                        }`}
-                        onClick={() => setSelectedTemplate(template)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-3">
-                            <Avatar className="size-10 rounded-md">
-                              <AvatarImage src={template.logoUrl || "/placeholder.svg"} />
-                              <AvatarFallback className="rounded-md text-xs">
-                                {template.name.substring(0, 2).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-semibold text-sm leading-tight">{template.name}</h4>
-                                  <p className="text-xs text-muted-foreground mt-0.5">{template.category}</p>
-                                </div>
-                                {selectedTemplate?.id === template.id && (
-                                  <Check className="h-5 w-5 text-primary shrink-0" />
+          {/* Step 1: Template Selection */}
+          {currentStep === 1 && (
+            <div className="space-y-6">
+              {/* Template Cards */}
+              <div className="grid gap-4">
+                {templateOptions.map((option) => (
+                  <Card
+                    key={option.id}
+                    className={`cursor-pointer transition-all hover:shadow-md ${
+                      selectedTemplate === option.id
+                        ? "border-primary ring-2 ring-primary/20"
+                        : ""
+                    }`}
+                    onClick={() => handleSelectTemplate(option.id)}
+                  >
+                    <CardContent className="p-6">
+                      <div className="flex items-start gap-4">
+                        <Avatar className="size-14 rounded-lg bg-muted">
+                          {option.logoUrl ? (
+                            <AvatarImage src={option.logoUrl} className="object-contain p-2" />
+                          ) : null}
+                          <AvatarFallback className="rounded-lg bg-muted">
+                            {option.icon}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-lg">{option.name}</h3>
+                                <Badge variant="secondary" className="text-xs">
+                                  {option.category}
+                                </Badge>
+                                {option.toolCount > 0 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {option.toolCount} tools
+                                  </Badge>
                                 )}
                               </div>
-                              <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                                {template.description}
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {option.description}
                               </p>
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {template.authTypes.map((authType) => (
-                                  <Badge key={authType} variant="secondary" className="text-xs">
-                                    {authType.replace("_", " ")}
-                                  </Badge>
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                {option.features.map((feature) => (
+                                  <span
+                                    key={feature}
+                                    className="text-xs bg-muted px-2 py-1 rounded"
+                                  >
+                                    {feature}
+                                  </span>
                                 ))}
                               </div>
                             </div>
+                            {selectedTemplate === option.id && (
+                              <Check className="h-6 w-6 text-primary shrink-0" />
+                            )}
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
 
-              <TabsContent value="custom" className="space-y-4 mt-6">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">
-                      Name <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="name"
-                      placeholder="My Application"
-                      value={customName}
-                      onChange={(e) => setCustomName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description (optional)</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="Describe what this application does..."
-                      rows={4}
-                      value={customDescription}
-                      onChange={(e) => setCustomDescription(e.target.value)}
-                    />
-                  </div>
+              {/* Configuration Fields (shown after selection) */}
+              {selectedTemplate && (
+                <div className="border-t pt-6 space-y-4">
+                  <h3 className="font-semibold">
+                    {selectedTemplate === "custom" ? "Application Details" : "Connection Configuration"}
+                  </h3>
+
+                  {selectedTemplate === "shopify" && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shopify-store">
+                          Shopify Store Name <span className="text-destructive">*</span>
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="shopify-store"
+                            placeholder="my-store"
+                            value={shopifyStore}
+                            onChange={(e) => setShopifyStore(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                            className="max-w-xs"
+                          />
+                          <span className="text-muted-foreground text-sm">.myshopify.com</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Enter your store name from your Shopify URL (e.g., "my-store" from my-store.myshopify.com)
+                        </p>
+                      </div>
+                      <Alert>
+                        <Info className="h-4 w-4" />
+                        <AlertDescription>
+                          25 essential Shopify tools will be auto-generated, including product management,
+                          order processing, customer data, and inventory tracking.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+
+                  {selectedTemplate === "quickbooks" && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="quickbooks-realm">
+                          QuickBooks Company ID (Realm ID) <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="quickbooks-realm"
+                          placeholder="123456789012345678"
+                          value={quickbooksRealmId}
+                          onChange={(e) => setQuickbooksRealmId(e.target.value.replace(/\D/g, ""))}
+                          className="max-w-xs"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Find your Company ID in QuickBooks: Settings → Account and Settings → look for "Company ID"
+                        </p>
+                      </div>
+                      <Alert>
+                        <Info className="h-4 w-4" />
+                        <AlertDescription>
+                          30 essential QuickBooks tools will be auto-generated, including invoicing,
+                          payments, customers, vendors, and financial reporting.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+
+                  {selectedTemplate === "custom" && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-name">
+                          Application Name <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          id="custom-name"
+                          placeholder="My Application"
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-description">Description (optional)</Label>
+                        <Textarea
+                          id="custom-description"
+                          placeholder="Describe what this application does..."
+                          rows={3}
+                          value={customDescription}
+                          onChange={(e) => setCustomDescription(e.target.value)}
+                        />
+                      </div>
+                      <Alert>
+                        <Info className="h-4 w-4" />
+                        <AlertDescription>
+                          Custom applications start with no pre-configured tools. You'll configure
+                          the API connection and create tools manually after setup.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
                 </div>
-              </TabsContent>
-            </Tabs>
+              )}
 
-            {/* Actions */}
-            <div className="flex justify-end pt-4 border-t">
-              <Button onClick={handleCreate} disabled={!canCreate || createApplication.isPending}>
-                {createApplication.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Create Application
-              </Button>
+              {/* Actions */}
+              <div className="flex justify-end pt-4 border-t">
+                <Button onClick={handleCreate} disabled={!canCreate || createApplication.isPending}>
+                  {createApplication.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Create Application
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
