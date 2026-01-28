@@ -84,7 +84,7 @@ export default function ToolsListPage({ params }: { params: { id: string } }) {
 
   // Map backend data to our Tool interface
   const toolItems = toolsData?.items ?? []
-  const tools: Tool[] = toolItems.map((t) => {
+  const tools: Tool[] = toolItems.map((t: typeof toolItems[number]) => {
     const spec = t.spec as { http?: { method?: string; path?: string }; safety?: { readOnly?: boolean } } | null
     return {
       id: t.id,

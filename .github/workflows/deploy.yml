@@ -33,6 +33,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/db
+
       - name: Remove system Pulumi (conflicts with SST bundled version)
         run: |
           sudo rm -rf /usr/local/bin/pulumi*
