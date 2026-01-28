@@ -33,6 +33,10 @@ declare module "sst" {
       "type": "sst.aws.Queue"
       "url": string
     }
+    "Landing": {
+      "type": "sst.aws.StaticSite"
+      "url": string
+    }
     "NextAuthSecret": {
       "type": "sst.sst.Secret"
       "value": string

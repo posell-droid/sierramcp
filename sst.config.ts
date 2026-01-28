@@ -519,6 +519,22 @@ export default $config({
     });
 
     // ============================================
+    // Landing Page (www.sierramcp.com)
+    // ============================================
+    const landing = new sst.aws.StaticSite("Landing", {
+      path: "apps/landing/public",
+      domain: $app.stage === "production"
+        ? {
+            name: "www.sierramcp.com",
+            dns: sst.aws.dns({
+              zone: "Z01458417KZZVV1XXX1R",
+            }),
+            cert: "arn:aws:acm:us-east-1:950941368861:certificate/80684a17-96df-4bd9-9804-982522918d89",
+          }
+        : undefined,
+    });
+
+    // ============================================
     // API (Optional standalone API Gateway)
     // ============================================
     const api = new sst.aws.ApiGatewayV2("Api", {
@@ -743,6 +759,7 @@ export default $config({
     // ============================================
     return {
       web: web.url,
+      landing: landing.url,
       api: api.url,
       userPoolId: userPool.id,
       userPoolClientId: userPoolClient.id,

@@ -107,6 +107,65 @@ pkill -f "ssh.*5433"
 - `/packages/functions` - tRPC routers and Lambda functions
 - `/packages/shared` - Shared types (ToolSpec, etc.)
 - `/apps/web` - Next.js frontend
+- `/apps/landing` - Static landing page (www.sierramcp.com)
+
+## UI Development
+
+This project uses **shadcn/ui** for all UI components. Follow these guidelines:
+
+### Adding New Components
+
+```bash
+# Add shadcn components via CLI (from apps/web directory)
+npx shadcn@latest add [component-name]
+```
+
+Available components: https://ui.shadcn.com/docs/components
+
+### Component Guidelines
+
+- **Use shadcn/ui components** from `@/components/ui/*` as building blocks
+- **Use Lucide React** for icons (`lucide-react` package)
+- **Use Tailwind CSS** for styling - leverage the CSS variables defined in `globals.css`
+- **Do NOT** install other UI libraries (Material UI, Chakra, Ant Design, etc.)
+- **Do NOT** use inline styles - use Tailwind classes instead
+
+### Styling Conventions
+
+- Use semantic color tokens: `bg-primary`, `text-muted-foreground`, `border-border`
+- Use the `cn()` utility from `@/lib/utils` to merge class names
+- Follow mobile-first responsive design: `sm:`, `md:`, `lg:` breakpoints
+- Dark mode is supported via CSS variables (class-based toggle)
+
+### Form Patterns
+
+- Use `react-hook-form` with `zod` for form validation
+- Use shadcn's `<Form>` components for consistent styling
+- Handle loading states with the `Loader2` icon from lucide-react
+
+### Example Component Structure
+
+```tsx
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Loader2, Plus } from "lucide-react"
+
+export function MyComponent() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Title</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Button disabled={isLoading}>
+          {isLoading ? <Loader2 className="animate-spin" /> : <Plus />}
+          Add Item
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+```
 
 ## SST Commands
 
