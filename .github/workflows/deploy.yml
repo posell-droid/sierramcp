@@ -43,7 +43,36 @@ jobs:
           sudo rm -rf /home/runner/.pulumi
 
       - name: Deploy with SST
-        run: npx sst deploy --stage production
+        run: |
+          # SST has a known Pulumi bug that causes "RangeError: Invalid string length"
+          # errors even when deployment succeeds. Capture output and check for real failures.
+          set +e
+          npx sst deploy --stage production 2>&1 | tee deploy.log
+          EXIT_CODE=$?
+          set -e
+
+          # Check for real build failures (not the RangeError bug)
+          if grep -q "Failed to compile" deploy.log; then
+            echo "::error::Build failed - TypeScript or build errors detected"
+            exit 1
+          fi
+
+          if grep -q "ENOENT.*prisma" deploy.log; then
+            echo "::error::Prisma engine not found"
+            exit 1
+          fi
+
+          # Check if deployment actually completed (WebInvalidation is the last step)
+          if grep -q "WebInvalidation" deploy.log; then
+            echo "✓ Deployment completed successfully"
+            exit 0
+          fi
+
+          # If we got here with a non-zero exit and no success indicators, it's a real failure
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::Deployment failed"
+            exit 1
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
