@@ -33,6 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Remove system Pulumi (conflicts with SST bundled version)
+        run: |
+          sudo rm -rf /usr/local/bin/pulumi*
+          sudo rm -rf /home/runner/.pulumi
+
       - name: Deploy with SST
         run: npx sst deploy --stage production
         env:
