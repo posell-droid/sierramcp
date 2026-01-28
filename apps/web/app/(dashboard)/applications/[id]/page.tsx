@@ -179,7 +179,7 @@ export default function ApplicationDetailPage() {
       refetchInterval: (query) => {
         const docs = query.state.data?.items || []
         const hasProcessing = docs.some(
-          (doc) => doc.status === "PENDING" || doc.status === "PROCESSING"
+          (doc: { status: string }) => doc.status === "PENDING" || doc.status === "PROCESSING"
         )
         return hasProcessing ? 3000 : false
       },
