@@ -531,6 +531,9 @@ export default $config({
     const landing = new sst.aws.Nextjs("Landing", {
       path: "apps/landing",
       link: [waitlist],
+      environment: {
+        WAITLIST_TABLE_NAME: waitlist.name,
+      },
       domain: $app.stage === "production"
         ? {
             name: "www.sierramcp.com",
