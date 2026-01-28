@@ -69,6 +69,10 @@ declare module "sst" {
       "bastion": string
       "type": "sst.aws.Vpc"
     }
+    "Waitlist": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
     "Web": {
       "type": "sst.aws.Nextjs"
       "url": string

@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { Resource } from "sst";
+
+const client = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(client);
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email } = body;
+    const { email, source = "landing" } = body;
 
     // Validate email
     if (!email || typeof email !== "string") {
@@ -22,15 +28,33 @@ export async function POST(request: Request) {
       );
     }
 
-    // TODO: Store email in database or send to email service
-    // For now, just log and return success
-    console.log(`Waitlist signup: ${email}`);
+    // Get client info
+    const forwarded = request.headers.get("x-forwarded-for");
+    const ip = forwarded?.split(",")[0]?.trim() || "unknown";
+    const userAgent = request.headers.get("user-agent") || "unknown";
+
+    // Store in DynamoDB (upsert - will overwrite if email exists)
+    await docClient.send(
+      new PutCommand({
+        TableName: Resource.Waitlist.name,
+        Item: {
+          email: email.toLowerCase().trim(),
+          createdAt: new Date().toISOString(),
+          source,
+          ip,
+          userAgent,
+        },
+      })
+    );
+
+    console.log(`Waitlist signup: ${email} from ${source}`);
 
     return NextResponse.json(
       { message: "Successfully joined the waitlist!" },
       { status: 200 }
     );
-  } catch {
+  } catch (error) {
+    console.error("Waitlist signup error:", error);
     return NextResponse.json(
       { error: "Failed to process request" },
       { status: 500 }

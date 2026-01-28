@@ -521,8 +521,16 @@ export default $config({
     // ============================================
     // Landing Page (www.sierramcp.com)
     // ============================================
+    const waitlist = new sst.aws.Dynamo("Waitlist", {
+      fields: {
+        email: "string",
+      },
+      primaryIndex: { hashKey: "email" },
+    });
+
     const landing = new sst.aws.Nextjs("Landing", {
       path: "apps/landing",
+      link: [waitlist],
       domain: $app.stage === "production"
         ? {
             name: "www.sierramcp.com",
