@@ -521,8 +521,8 @@ export default $config({
     // ============================================
     // Landing Page (www.sierramcp.com)
     // ============================================
-    const landing = new sst.aws.StaticSite("Landing", {
-      path: "apps/landing/public",
+    const landing = new sst.aws.Nextjs("Landing", {
+      path: "apps/landing",
       domain: $app.stage === "production"
         ? {
             name: "www.sierramcp.com",

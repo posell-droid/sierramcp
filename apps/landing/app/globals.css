@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Purple/Violet brand colors from spec */
+    --primary: 263 70% 60%;        /* #8B5CF6 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Dark background */
+    --background: 220 20% 10%;     /* #1F2937 */
+    --foreground: 210 40% 98%;     /* Light text */
+
+    /* Card/sections */
+    --card: 220 20% 14%;           /* Slightly lighter than bg */
+    --card-foreground: 210 40% 98%;
+
+    /* Muted colors */
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 20% 65%;  /* #9CA3AF */
+
+    /* Accent */
+    --accent: 263 60% 80%;         /* #C4B5FD - light purple */
+    --accent-foreground: 220 20% 10%;
+
+    /* Secondary */
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 210 40% 98%;
+
+    /* Popover */
+    --popover: 220 20% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Border/Input */
+    --border: 220 15% 25%;
+    --input: 220 15% 25%;
+    --ring: 263 70% 60%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --radius: 0.625rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent;
+  }
+
+  .gradient-border {
+    @apply border border-violet-500/30;
+  }
+}

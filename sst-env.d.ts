@@ -34,7 +34,7 @@ declare module "sst" {
       "url": string
     }
     "Landing": {
-      "type": "sst.aws.StaticSite"
+      "type": "sst.aws.Nextjs"
       "url": string
     }
     "NextAuthSecret": {
