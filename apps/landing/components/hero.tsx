@@ -10,21 +10,22 @@ export function Hero() {
       <div className="container relative mx-auto px-4">
         <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
           {/* Logo */}
-          <div className="mb-8">
+          <div className="mb-8 flex flex-col items-center gap-3">
             <Image
               src="/logo.svg"
               alt="SierraMCP"
-              width={200}
-              height={60}
+              width={120}
+              height={120}
               priority
-              className="h-12 w-auto"
+              className="h-28 w-28"
             />
+            <span className="text-4xl font-bold tracking-tight">SierraMCP</span>
           </div>
 
           {/* Main headline */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-balance mb-6">
-            Making AI accessible where your teams already work—
-            <span className="gradient-text">no engineering required.</span>
+            Making AI accessible where your teams already work.
+            <span className="gradient-text"> No engineering required.</span>
           </h1>
 
           {/* Subheadline */}

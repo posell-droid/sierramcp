@@ -10,14 +10,15 @@ export default function PrivacyPage() {
   return (
     <main className="min-h-screen py-20">
       <div className="container mx-auto px-4 max-w-3xl">
-        <Link href="/" className="inline-block mb-12">
+        <Link href="/" className="inline-flex items-center gap-2 mb-12">
           <Image
             src="/logo.svg"
             alt="SierraMCP"
-            width={150}
-            height={45}
-            className="h-10 w-auto"
+            width={40}
+            height={40}
+            className="h-10 w-10"
           />
+          <span className="text-2xl font-bold tracking-tight">SierraMCP</span>
         </Link>
 
         <h1 className="text-4xl font-bold mb-8">Privacy Policy</h1>

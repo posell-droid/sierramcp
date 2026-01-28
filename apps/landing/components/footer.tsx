@@ -13,10 +13,11 @@ export function Footer() {
             <Image
               src="/logo.svg"
               alt="SierraMCP"
-              width={120}
-              height={36}
-              className="h-8 w-auto"
+              width={32}
+              height={32}
+              className="h-8 w-8"
             />
+            <span className="text-xl font-bold tracking-tight">SierraMCP</span>
           </div>
 
           {/* Links */}
