@@ -1184,7 +1184,11 @@ model OAuthState {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // For Shopify: the shop subdomain (e.g., "my-store" from my-store.myshopify.com)
-  shop String
+  // Optional since Amazon FBA doesn't require this
+  shop String?
+
+  // Provider-specific metadata (e.g., Amazon region: na/eu/fe)
+  metadata Json @default("{}")
 
   // Security: 10 minute expiration, single-use
   expiresAt DateTime
