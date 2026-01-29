@@ -1,0 +1,18 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "8aa11ced9f7516dd9ea8570d66cd3c0e"
+name = "sierramcp"
+application_url = "https://app.sierramcp.com"
+embedded = false
+
+[webhooks]
+api_version = "2024-10"
+
+[access_scopes]
+scopes = "read_products,read_orders,read_customers,read_inventory,read_fulfillments,read_shipping,read_analytics,read_reports,read_content,read_themes,read_locations,read_price_rules,read_discounts"
+
+[auth]
+redirect_urls = [
+  "https://api.sierramcp.com/oauth/shopify/callback",
+  "https://s8hv7plzi4.execute-api.us-east-1.amazonaws.com/oauth/shopify/callback"
+]

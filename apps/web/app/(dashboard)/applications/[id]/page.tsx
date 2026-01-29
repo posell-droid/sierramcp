@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
 import { trpc } from "@/lib/trpc"
@@ -33,6 +33,9 @@ import {
   Key,
   Shield,
   RefreshCw,
+  ShoppingBag,
+  Unplug,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -84,6 +87,8 @@ interface AppEnvironment {
   secretArn: string | null
   lastTestedAt: Date | null
   lastTestStatus: string | null
+  oauthConnectedAt?: Date | null
+  oauthShop?: string | null
 }
 
 interface AppDocument {
@@ -129,6 +134,7 @@ const envLabels: Record<EnvironmentType, string> = {
 export default function ApplicationDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const applicationId = params.id as string
 
   const [activeTab, setActiveTab] = useState("overview")
@@ -139,6 +145,10 @@ export default function ApplicationDetailPage() {
   const [selectedEnvForCredentials, setSelectedEnvForCredentials] = useState<AppEnvironment | null>(null)
   const [isDeleteDocDialogOpen, setIsDeleteDocDialogOpen] = useState(false)
   const [documentToDelete, setDocumentToDelete] = useState<AppDocument | null>(null)
+  // OAuth Connect dialog
+  const [isOAuthConnectDialogOpen, setIsOAuthConnectDialogOpen] = useState(false)
+  const [selectedEnvForOAuth, setSelectedEnvForOAuth] = useState<AppEnvironment | null>(null)
+  const [shopName, setShopName] = useState("")
 
   // Environment form
   const [envForm, setEnvForm] = useState({
@@ -312,6 +322,65 @@ export default function ApplicationDetailPage() {
     },
   })
 
+  const initiateOAuth = trpc.applications.initiateOAuth.useMutation({
+    onSuccess: (data) => {
+      // Redirect to Shopify authorization page
+      window.location.href = data.authorizationUrl
+    },
+    onError: (error) => {
+      toast.error("Failed to start OAuth flow", {
+        description: error.message,
+      })
+    },
+  })
+
+  const disconnectOAuth = trpc.applications.disconnectOAuth.useMutation({
+    onSuccess: () => {
+      refetch()
+      toast.success("Shopify disconnected successfully")
+    },
+    onError: (error) => {
+      toast.error("Failed to disconnect", {
+        description: error.message,
+      })
+    },
+  })
+
+  // Handle OAuth callback result from URL params
+  useEffect(() => {
+    const oauth = searchParams.get("oauth")
+    const error = searchParams.get("error")
+    const shop = searchParams.get("shop")
+
+    if (oauth === "success") {
+      toast.success("Successfully connected to Shopify!", {
+        description: shop ? `Connected to ${shop}` : undefined,
+      })
+      // Clean URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete("oauth")
+      url.searchParams.delete("shop")
+      window.history.replaceState({}, "", url.pathname)
+      // Refetch to get updated OAuth status
+      refetch()
+    } else if (oauth === "error") {
+      const errorMessages: Record<string, string> = {
+        expired: "OAuth session expired. Please try again.",
+        already_used: "This authorization link has already been used.",
+        shop_mismatch: "Shop mismatch. Please try connecting again.",
+        token_exchange_failed: "Failed to connect to Shopify. Please try again.",
+      }
+      toast.error("Shopify connection failed", {
+        description: errorMessages[error || ""] || "An unexpected error occurred.",
+      })
+      // Clean URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete("oauth")
+      url.searchParams.delete("error")
+      window.history.replaceState({}, "", url.pathname)
+    }
+  }, [searchParams, refetch])
+
   const handleAddEnvironment = () => {
     if (!envForm.environment || !envForm.baseUrl || !envForm.authType) return
     addEnvironment.mutate({
@@ -341,6 +410,35 @@ export default function ApplicationDetailPage() {
     setSelectedEnvForCredentials(env)
     resetCredentialsForm()
     setIsCredentialsDialogOpen(true)
+  }
+
+  const openOAuthConnectDialog = (env: AppEnvironment) => {
+    // Try to extract shop name from baseUrl if it's already a Shopify URL
+    const shopifyMatch = env.baseUrl.match(/https?:\/\/([^.]+)\.myshopify\.com/i)
+    if (shopifyMatch) {
+      // We already have the shop name from baseUrl, skip the dialog
+      initiateOAuth.mutate({
+        environmentId: env.id,
+        shop: shopifyMatch[1],
+      })
+    } else {
+      // Show dialog to get shop name
+      setSelectedEnvForOAuth(env)
+      setShopName("")
+      setIsOAuthConnectDialogOpen(true)
+    }
+  }
+
+  const handleOAuthConnect = () => {
+    if (!selectedEnvForOAuth || !shopName.trim()) return
+    initiateOAuth.mutate({
+      environmentId: selectedEnvForOAuth.id,
+      shop: shopName.trim(),
+    })
+  }
+
+  const handleOAuthDisconnect = (env: AppEnvironment) => {
+    disconnectOAuth.mutate({ environmentId: env.id })
   }
 
   const handleSetCredentials = () => {
@@ -1031,7 +1129,13 @@ export default function ApplicationDetailPage() {
                           {envLabels[env.environment]}
                         </Badge>
                         <span className="text-sm text-muted-foreground">{authTypeLabels[env.authType]}</span>
-                        {env.secretArn ? (
+                        {/* Show OAuth connected status for Shopify */}
+                        {application.template?.slug === "shopify" && env.authType === "OAUTH2" && env.oauthConnectedAt ? (
+                          <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20">
+                            <ShoppingBag className="h-3 w-3 mr-1" />
+                            Connected to {env.oauthShop}
+                          </Badge>
+                        ) : env.secretArn ? (
                           <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20">
                             <Shield className="h-3 w-3 mr-1" />
                             Credentials set
@@ -1044,7 +1148,32 @@ export default function ApplicationDetailPage() {
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2">
-                        {env.authType !== "NONE" && (
+                        {/* Shopify OAuth Connect/Disconnect button */}
+                        {application.template?.slug === "shopify" && env.authType === "OAUTH2" ? (
+                          env.oauthConnectedAt ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOAuthDisconnect(env)}
+                              disabled={disconnectOAuth.isPending}
+                            >
+                              {disconnectOAuth.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Unplug className="h-4 w-4" />
+                              )}
+                              <span className="ml-2">Disconnect</span>
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => openOAuthConnectDialog(env)}
+                            >
+                              <ShoppingBag className="h-4 w-4" />
+                              <span className="ml-2">Connect to Shopify</span>
+                            </Button>
+                          )
+                        ) : env.authType !== "NONE" && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -1094,6 +1223,12 @@ export default function ApplicationDetailPage() {
                     {env.lastTestedAt && (
                       <p className="text-xs text-muted-foreground mt-2">
                         Last tested: {new Date(env.lastTestedAt).toLocaleString()} - {env.lastTestStatus}
+                      </p>
+                    )}
+                    {/* Show OAuth connection time for Shopify */}
+                    {env.oauthConnectedAt && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Connected: {new Date(env.oauthConnectedAt).toLocaleString()}
                       </p>
                     )}
                   </CardContent>
@@ -1713,6 +1848,91 @@ export default function ApplicationDetailPage() {
             >
               {deleteDocument.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Delete Document
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shopify OAuth Connect Dialog */}
+      <Dialog open={isOAuthConnectDialogOpen} onOpenChange={(open) => {
+        setIsOAuthConnectDialogOpen(open)
+        if (!open) {
+          setSelectedEnvForOAuth(null)
+          setShopName("")
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5" />
+              Connect to Shopify
+            </DialogTitle>
+            <DialogDescription>
+              Enter your Shopify store name to connect your store to SierraMCP. You'll be redirected to Shopify to authorize access.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="shopName">Shopify Store Name</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="shopName"
+                  placeholder="my-store"
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  className="flex-1"
+                />
+                <span className="text-sm text-muted-foreground">.myshopify.com</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter the subdomain part of your Shopify store URL. For example, if your store is at <code className="bg-muted px-1 rounded">my-store.myshopify.com</code>, enter <code className="bg-muted px-1 rounded">my-store</code>.
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-muted p-4 space-y-2">
+              <div className="flex items-start gap-2">
+                <Shield className="h-4 w-4 text-green-600 mt-0.5" />
+                <div className="text-sm">
+                  <span className="font-medium">Secure OAuth Flow</span>
+                  <p className="text-muted-foreground text-xs">
+                    You'll be redirected to Shopify to authorize access. Your credentials are never shared with SierraMCP directly.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
+                <div className="text-sm">
+                  <span className="font-medium">Required Permissions</span>
+                  <p className="text-muted-foreground text-xs">
+                    Read products, orders, customers, and inventory data.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsOAuthConnectDialogOpen(false)
+                setSelectedEnvForOAuth(null)
+                setShopName("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleOAuthConnect}
+              disabled={!shopName.trim() || initiateOAuth.isPending}
+            >
+              {initiateOAuth.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <ExternalLink className="h-4 w-4 mr-2" />
+              )}
+              Connect to Shopify
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,0 +1,6 @@
+{
+  "name": "sierramcp-shopify-oauth",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shopify OAuth configuration for SierraMCP"
+}

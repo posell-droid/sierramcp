@@ -448,10 +448,16 @@ export default $config({
     const nextAuthSecret = new sst.Secret("NextAuthSecret");
     const nextAuthUrl = new sst.Secret("NextAuthUrl");
 
+    // ============================================
+    // Shopify OAuth Secrets
+    // ============================================
+    const shopifyClientId = new sst.Secret("ShopifyClientId");
+    const shopifyClientSecret = new sst.Secret("ShopifyClientSecret");
+
     const web = new sst.aws.Nextjs("Web", {
       path: "apps/web",
       vpc,
-      link: [database, uploads, userPool, jobQueue, documentQueue, openaiApiKey, anthropicApiKey, workosApiKey, workosClientId, workosCookiePassword, workosRedirectUri, nextAuthSecret, nextAuthUrl],
+      link: [database, uploads, userPool, jobQueue, documentQueue, openaiApiKey, anthropicApiKey, workosApiKey, workosClientId, workosCookiePassword, workosRedirectUri, nextAuthSecret, nextAuthUrl, shopifyClientId, shopifyClientSecret],
       server: {
         timeout: "60 seconds", // Increased for LLM API calls
         memory: "1024 MB",
@@ -550,7 +556,15 @@ export default $config({
     // ============================================
     const api = new sst.aws.ApiGatewayV2("Api", {
       vpc,
-      link: [database, uploads],
+      link: [database, uploads, shopifyClientId, shopifyClientSecret],
+      domain: $app.stage === "production"
+        ? {
+            name: "api.sierramcp.com",
+            dns: sst.aws.dns({
+              zone: "Z01458417KZZVV1XXX1R",
+            }),
+          }
+        : undefined,
     });
 
     api.route("GET /health", "packages/functions/src/api/health.handler");
@@ -702,6 +716,55 @@ export default $config({
     };
 
     api.route("POST /stripe/webhook", "packages/functions/src/api/stripe-webhook.handler", stripeWebhookConfig);
+
+    // ============================================
+    // Shopify OAuth Callback Function
+    // ============================================
+    // Using standalone Function because api.route() doesn't apply route-level config properly
+    const shopifyOAuthCallback = new sst.aws.Function("ShopifyOAuthCallback", {
+      handler: "packages/functions/src/api/oauth/shopify-callback.handler",
+      link: [database, shopifyClientId, shopifyClientSecret],
+      vpc,
+      timeout: "30 seconds",
+      memory: "256 MB",
+      permissions: [
+        {
+          actions: [
+            "secretsmanager:CreateSecret",
+            "secretsmanager:UpdateSecret",
+            "secretsmanager:GetSecretValue",
+            "secretsmanager:TagResource",
+          ],
+          resources: ["arn:aws:secretsmanager:*:*:secret:gatemcp/*"],
+        },
+      ],
+      environment: {
+        SHOPIFY_CLIENT_ID: shopifyClientId.value,
+        SHOPIFY_CLIENT_SECRET: shopifyClientSecret.value,
+        APP_URL: $app.stage === "production"
+          ? "https://app.sierramcp.com"
+          : "http://localhost:3000",
+        PRISMA_QUERY_ENGINE_LIBRARY: "/var/task/libquery_engine-rhel-openssl-3.0.x.so.node",
+      },
+      nodejs: {
+        esbuild: {
+          external: [],
+          loader: { ".node": "copy" },
+        },
+      },
+      copyFiles: [
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node",
+          to: "libquery_engine-rhel-openssl-3.0.x.so.node",
+        },
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/schema.prisma",
+          to: "schema.prisma",
+        },
+      ],
+    });
+
+    api.route("GET /oauth/shopify/callback", shopifyOAuthCallback.arn);
 
     // ============================================
     // Metering Cron Jobs

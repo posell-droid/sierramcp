@@ -7,6 +7,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SecretsManagerClient, CreateSecretCommand, UpdateSecretCommand, DeleteSecretCommand, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { Resource } from "sst";
+import { randomUUID } from "crypto";
 
 // Initialize SQS client for document processing
 const sqsClient = new SQSClient({
@@ -1253,6 +1254,197 @@ export const applicationsRouter = router({
           metadata: {
             applicationId: environment.applicationId,
             environment: environment.environment,
+          },
+        },
+      });
+
+      return { success: true };
+    }),
+
+  /**
+   * Initiate OAuth flow for Shopify (and future OAuth providers)
+   * Generates authorization URL with state token for CSRF protection
+   */
+  initiateOAuth: protectedProcedure
+    .input(
+      z.object({
+        environmentId: z.string().uuid(),
+        shop: z.string().min(1), // e.g., "my-store" (without .myshopify.com)
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const environment = await ctx.tenant.db.applicationEnvironment.findUnique({
+        where: { id: input.environmentId },
+        include: {
+          application: {
+            include: {
+              template: true,
+            },
+          },
+        },
+      });
+
+      if (!environment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Environment not found",
+        });
+      }
+
+      if (environment.authType !== "OAUTH2") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "OAuth flow is only available for OAuth2 authentication type",
+        });
+      }
+
+      // Validate this is a Shopify template
+      if (environment.application.template?.slug !== "shopify") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "OAuth connect flow is currently only available for Shopify",
+        });
+      }
+
+      // Clean up shop name (remove .myshopify.com if present)
+      const shopName = input.shop.replace(/\.myshopify\.com$/, "").toLowerCase();
+
+      // Generate random state token
+      const state = randomUUID();
+
+      // Store OAuth state in database (10 minute expiry)
+      await ctx.tenant.db.oAuthState.create({
+        data: {
+          state,
+          environmentId: input.environmentId,
+          tenantId: ctx.tenant.tenantId,
+          shop: shopName,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        },
+      });
+
+      // Get Shopify Client ID from SST Resource
+      const shopifyClientId = (Resource as unknown as { ShopifyClientId?: { value: string } }).ShopifyClientId?.value;
+      if (!shopifyClientId) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Shopify OAuth is not configured",
+        });
+      }
+
+      // Get API base URL for redirect - use direct API Gateway URL to avoid DNS issues
+      const apiUrl = process.env.API_URL || "https://s8hv7plzi4.execute-api.us-east-1.amazonaws.com";
+      const redirectUri = `${apiUrl}/oauth/shopify/callback`;
+
+      // Shopify OAuth scopes - these should match what's configured in Shopify Partner Dashboard
+      const scopes = [
+        "read_products",
+        "read_orders",
+        "read_customers",
+        "read_inventory",
+        "read_fulfillments",
+        "read_shipping",
+        "read_analytics",
+        "read_reports",
+        "read_content",
+        "read_themes",
+        "read_locations",
+        "read_price_rules",
+        "read_discounts",
+      ].join(",");
+
+      // Build Shopify authorization URL
+      const authorizationUrl = new URL(`https://${shopName}.myshopify.com/admin/oauth/authorize`);
+      authorizationUrl.searchParams.set("client_id", shopifyClientId);
+      authorizationUrl.searchParams.set("scope", scopes);
+      authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+      authorizationUrl.searchParams.set("state", state);
+
+      await ctx.tenant.db.auditLog.create({
+        data: {
+          action: "application.oauth.initiated",
+          entityType: "ApplicationEnvironment",
+          entityId: input.environmentId,
+          userId: ctx.tenant.userId,
+          tenantId: ctx.tenant.tenantId,
+          metadata: {
+            shop: shopName,
+            applicationId: environment.applicationId,
+          },
+        },
+      });
+
+      return {
+        authorizationUrl: authorizationUrl.toString(),
+        shop: shopName,
+      };
+    }),
+
+  /**
+   * Disconnect OAuth connection and revoke access token
+   */
+  disconnectOAuth: protectedProcedure
+    .input(z.object({ environmentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const environment = await ctx.tenant.db.applicationEnvironment.findUnique({
+        where: { id: input.environmentId },
+        include: {
+          application: true,
+        },
+      });
+
+      if (!environment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Environment not found",
+        });
+      }
+
+      if (!environment.oauthConnectedAt) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No OAuth connection to disconnect",
+        });
+      }
+
+      // Delete secret from AWS Secrets Manager
+      if (environment.secretArn) {
+        try {
+          const secretsClient = new SecretsManagerClient({});
+          await secretsClient.send(
+            new DeleteSecretCommand({
+              SecretId: environment.secretArn,
+              ForceDeleteWithoutRecovery: true,
+            })
+          );
+        } catch (error) {
+          console.error("Failed to delete secret:", error);
+          // Continue even if deletion fails
+        }
+      }
+
+      // Clear OAuth fields and secret ARN
+      await ctx.tenant.db.applicationEnvironment.update({
+        where: { id: input.environmentId },
+        data: {
+          secretArn: null,
+          oauthConnectedAt: null,
+          oauthShop: null,
+          lastTestedAt: null,
+          lastTestStatus: null,
+        },
+      });
+
+      await ctx.tenant.db.auditLog.create({
+        data: {
+          action: "application.oauth.disconnected",
+          entityType: "ApplicationEnvironment",
+          entityId: input.environmentId,
+          userId: ctx.tenant.userId,
+          tenantId: ctx.tenant.tenantId,
+          metadata: {
+            shop: environment.oauthShop,
+            applicationId: environment.applicationId,
           },
         },
       });

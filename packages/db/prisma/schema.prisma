@@ -146,6 +146,9 @@ model Tenant {
   botProfiles BotProfile[]
   chatRoutes  ChatRoute[]
 
+  // OAuth
+  oauthStates OAuthState[]
+
   @@map("tenants")
 }
 
@@ -1133,6 +1136,13 @@ model ApplicationEnvironment {
   // never from authConfig or any other database field.
   secretArn String?
 
+  // ============================================
+  // OAUTH CONNECTION STATUS
+  // ============================================
+  // For OAuth2 flows where users connect via authorization redirect
+  oauthConnectedAt DateTime? // When OAuth was completed
+  oauthShop        String?   // Connected shop domain (e.g., "my-store.myshopify.com")
+
   // Status
   isActive       Boolean   @default(true)
   lastTestedAt   DateTime?
@@ -1146,10 +1156,46 @@ model ApplicationEnvironment {
 
   // Relations
   toolExecutions ToolExecution[]
+  oauthStates    OAuthState[]
 
   @@unique([applicationId, environment])
   @@index([tenantId])
   @@map("application_environments")
+}
+
+// ============================================
+// OAUTH STATE (for OAuth2 Authorization Flow)
+// ============================================
+// Tracks OAuth authorization state for CSRF protection
+// Used when users connect apps like Shopify via OAuth redirect flow
+
+model OAuthState {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // Random state token for CSRF protection
+  state String @unique
+
+  // Which environment this OAuth flow is for
+  environmentId String                 @db.Uuid
+  environment   ApplicationEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  // Tenant scoping
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // For Shopify: the shop subdomain (e.g., "my-store" from my-store.myshopify.com)
+  shop String
+
+  // Security: 10 minute expiration, single-use
+  expiresAt DateTime
+  usedAt    DateTime? // Marked when used (single-use)
+
+  createdAt DateTime @default(now())
+
+  @@index([state])
+  @@index([environmentId])
+  @@index([tenantId])
+  @@map("oauth_states")
 }
 
 enum EnvironmentType {
