@@ -584,6 +584,210 @@ const shopifyDefaultTools = [
   }
 ];
 
+const amazonFbaDefaultTools = [
+  {
+    name: "get_inventory_summaries",
+    title: "Get Inventory Summaries",
+    description: "Returns a list of inventory summaries for FBA inventory. Use this to check stock levels, available inventory, and inbound quantities.",
+    httpMethod: "GET",
+    pathTemplate: "/fba/inventory/v1/summaries",
+    inputs: {
+      type: "object",
+      properties: {
+        details: { type: "boolean", description: "Return granular inventory details (default false)" },
+        granularityType: { type: "string", enum: ["Marketplace"], description: "Granularity type for the inventory aggregation level" },
+        granularityId: { type: "string", description: "Marketplace ID for the inventory" },
+        startDateTime: { type: "string", description: "Start date/time for inventory data (ISO 8601)" },
+        sellerSkus: { type: "array", items: { type: "string" }, description: "List of seller SKUs to filter by (max 50)" },
+        nextToken: { type: "string", description: "Pagination token from previous response" },
+        marketplaceIds: { type: "array", items: { type: "string" }, description: "List of marketplace IDs (required)" }
+      },
+      required: ["marketplaceIds", "granularityType", "granularityId"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        inventorySummaries: { type: "array", description: "List of inventory summary objects" },
+        nextToken: { type: "string", description: "Token for next page of results" }
+      }
+    }
+  },
+  {
+    name: "get_orders",
+    title: "Get Orders",
+    description: "Returns orders created or updated during the time frame indicated by the specified parameters. Use this to list recent orders with filters.",
+    httpMethod: "GET",
+    pathTemplate: "/orders/v0/orders",
+    inputs: {
+      type: "object",
+      properties: {
+        marketplaceIds: { type: "array", items: { type: "string" }, description: "List of marketplace IDs (required)" },
+        createdAfter: { type: "string", description: "Return orders created after this date (ISO 8601)" },
+        createdBefore: { type: "string", description: "Return orders created before this date (ISO 8601)" },
+        lastUpdatedAfter: { type: "string", description: "Return orders updated after this date (ISO 8601)" },
+        lastUpdatedBefore: { type: "string", description: "Return orders updated before this date (ISO 8601)" },
+        orderStatuses: { type: "array", items: { type: "string" }, description: "Filter by order status (Pending, Unshipped, PartiallyShipped, Shipped, Canceled, etc.)" },
+        fulfillmentChannels: { type: "array", items: { type: "string" }, description: "Filter by fulfillment channel (AFN for FBA, MFN for merchant)" },
+        paymentMethods: { type: "array", items: { type: "string" }, description: "Filter by payment method" },
+        maxResultsPerPage: { type: "integer", description: "Max results per page (1-100, default 100)" },
+        nextToken: { type: "string", description: "Pagination token from previous response" }
+      },
+      required: ["marketplaceIds"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        orders: { type: "array", description: "List of order objects" },
+        nextToken: { type: "string", description: "Token for next page of results" }
+      }
+    }
+  },
+  {
+    name: "get_order",
+    title: "Get Order",
+    description: "Returns the order that you specify by order ID",
+    httpMethod: "GET",
+    pathTemplate: "/orders/v0/orders/{orderId}",
+    inputs: {
+      type: "object",
+      properties: {
+        orderId: { type: "string", description: "Amazon order ID (e.g., 123-1234567-1234567)" }
+      },
+      required: ["orderId"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        order: { type: "object", description: "Order details including status, shipping info, and totals" }
+      }
+    }
+  },
+  {
+    name: "get_order_items",
+    title: "Get Order Items",
+    description: "Returns detailed order item information for the order that you specify",
+    httpMethod: "GET",
+    pathTemplate: "/orders/v0/orders/{orderId}/orderItems",
+    inputs: {
+      type: "object",
+      properties: {
+        orderId: { type: "string", description: "Amazon order ID" },
+        nextToken: { type: "string", description: "Pagination token from previous response" }
+      },
+      required: ["orderId"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        orderItems: { type: "array", description: "List of order item objects with ASIN, quantity, price, etc." },
+        nextToken: { type: "string", description: "Token for next page of results" }
+      }
+    }
+  },
+  {
+    name: "get_fulfillment_order",
+    title: "Get Fulfillment Order",
+    description: "Returns a fulfillment order with the specified fulfillment order ID. Use this for Multi-Channel Fulfillment (MCF) orders.",
+    httpMethod: "GET",
+    pathTemplate: "/fba/outbound/2020-07-01/fulfillmentOrders/{sellerFulfillmentOrderId}",
+    inputs: {
+      type: "object",
+      properties: {
+        sellerFulfillmentOrderId: { type: "string", description: "The fulfillment order identifier that you created" }
+      },
+      required: ["sellerFulfillmentOrderId"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        fulfillmentOrder: { type: "object", description: "Fulfillment order details" },
+        fulfillmentOrderItems: { type: "array", description: "Items in the fulfillment order" },
+        fulfillmentShipments: { type: "array", description: "Shipment information" }
+      }
+    }
+  },
+  {
+    name: "get_package_tracking",
+    title: "Get Package Tracking",
+    description: "Returns delivery tracking information for a package in an outbound shipment for MCF orders",
+    httpMethod: "GET",
+    pathTemplate: "/fba/outbound/2020-07-01/tracking",
+    inputs: {
+      type: "object",
+      properties: {
+        packageNumber: { type: "integer", description: "The unencrypted package identifier returned by the getFulfillmentOrder operation" }
+      },
+      required: ["packageNumber"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        packageNumber: { type: "integer", description: "Package number" },
+        trackingNumber: { type: "string", description: "Carrier tracking number" },
+        carrierCode: { type: "string", description: "Shipping carrier code" },
+        trackingEvents: { type: "array", description: "List of tracking events" }
+      }
+    }
+  },
+  {
+    name: "get_listings_item",
+    title: "Get Listings Item",
+    description: "Returns details about a listings item for a selling partner",
+    httpMethod: "GET",
+    pathTemplate: "/listings/2021-08-01/items/{sellerId}/{sku}",
+    inputs: {
+      type: "object",
+      properties: {
+        sellerId: { type: "string", description: "Selling partner identifier" },
+        sku: { type: "string", description: "Seller SKU of the listings item" },
+        marketplaceIds: { type: "array", items: { type: "string" }, description: "List of marketplace IDs (required)" },
+        includedData: { type: "array", items: { type: "string" }, description: "Data sets to include (summaries, attributes, issues, offers, fulfillmentAvailability, procurement)" }
+      },
+      required: ["sellerId", "sku", "marketplaceIds"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        sku: { type: "string", description: "Seller SKU" },
+        summaries: { type: "array", description: "Listing summaries by marketplace" },
+        attributes: { type: "object", description: "Listing attributes" },
+        issues: { type: "array", description: "Issues affecting the listing" },
+        offers: { type: "array", description: "Offers for the listing" }
+      }
+    }
+  },
+  {
+    name: "search_catalog_items",
+    title: "Search Catalog Items",
+    description: "Search for Amazon catalog items by ASIN, keyword, or other identifiers",
+    httpMethod: "GET",
+    pathTemplate: "/catalog/2022-04-01/items",
+    inputs: {
+      type: "object",
+      properties: {
+        keywords: { type: "array", items: { type: "string" }, description: "Keywords to search (use with keywordsLocale)" },
+        keywordsLocale: { type: "string", description: "Locale of the keywords (e.g., en_US)" },
+        marketplaceIds: { type: "array", items: { type: "string" }, description: "List of marketplace IDs (required)" },
+        includedData: { type: "array", items: { type: "string" }, description: "Data sets to include (identifiers, images, productTypes, salesRanks, summaries, variations, vendorDetails)" },
+        brandNames: { type: "array", items: { type: "string" }, description: "Filter by brand names" },
+        classificationIds: { type: "array", items: { type: "string" }, description: "Filter by classification IDs" },
+        pageSize: { type: "integer", description: "Results per page (1-20, default 10)" },
+        pageToken: { type: "string", description: "Pagination token" },
+        identifiers: { type: "array", items: { type: "string" }, description: "Product identifiers (ASINs, UPCs, etc.)" },
+        identifiersType: { type: "string", enum: ["ASIN", "EAN", "GTIN", "ISBN", "JAN", "MINSAN", "SKU", "UPC"], description: "Type of identifiers provided" }
+      },
+      required: ["marketplaceIds"]
+    },
+    outputs: {
+      type: "object",
+      properties: {
+        items: { type: "array", description: "List of catalog items matching search criteria" },
+        pagination: { type: "object", description: "Pagination info with nextToken" }
+      }
+    }
+  }
+];
+
 const quickbooksDefaultTools = [
   {
     name: "get_company_info",
@@ -1230,6 +1434,30 @@ const applicationTemplates = [
     documentationUrls: ["https://shopify.dev/docs/api/admin-rest"]
   },
   {
+    slug: "amazon-fba",
+    name: "Amazon FBA",
+    category: "E-commerce",
+    description: "Connect to Amazon Selling Partner API for FBA inventory, orders, fulfillment, and product listings",
+    logoUrl: "/images/templates/amazon.svg",
+    docsUrl: "https://developer-docs.amazon.com/sp-api/docs",
+    authTypes: ["OAUTH2"],
+    isActive: true,
+    sortOrder: 2,
+    defaultBaseUrl: "https://sellingpartnerapi-na.amazon.com",
+    defaultAuthType: "OAUTH2" as const,
+    authConfig: {
+      authorizationUrl: "https://sellercentral.amazon.com/apps/authorize/consent",
+      tokenUrl: "https://api.amazon.com/auth/o2/token",
+      regions: {
+        na: "sellingpartnerapi-na.amazon.com",
+        eu: "sellingpartnerapi-eu.amazon.com",
+        fe: "sellingpartnerapi-fe.amazon.com"
+      }
+    },
+    defaultTools: amazonFbaDefaultTools,
+    documentationUrls: ["https://developer-docs.amazon.com/sp-api/docs"]
+  },
+  {
     slug: "quickbooks",
     name: "QuickBooks Online",
     category: "Accounting",
@@ -1238,7 +1466,7 @@ const applicationTemplates = [
     docsUrl: "https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/account",
     authTypes: ["OAUTH2"],
     isActive: true,
-    sortOrder: 2,
+    sortOrder: 3,
     defaultBaseUrl: "https://quickbooks.api.intuit.com/v3/company/{realmId}",
     defaultAuthType: "OAUTH2" as const,
     authConfig: {
@@ -1432,6 +1660,7 @@ async function main() {
   console.log("  - member@demo.com (MEMBER)");
   console.log("Application templates:");
   console.log("  - Shopify (25 tools)");
+  console.log("  - Amazon FBA (8 tools)");
   console.log("  - QuickBooks Online (30 tools)");
 }
 
