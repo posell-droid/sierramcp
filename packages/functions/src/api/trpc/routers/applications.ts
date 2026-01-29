@@ -1269,7 +1269,8 @@ export const applicationsRouter = router({
     .input(
       z.object({
         environmentId: z.string().uuid(),
-        shop: z.string().min(1), // e.g., "my-store" (without .myshopify.com)
+        shop: z.string().optional(), // e.g., "my-store" (without .myshopify.com) - for Shopify
+        region: z.enum(["na", "eu", "fe"]).optional(), // For Amazon - NA, EU, or Far East
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1298,86 +1299,164 @@ export const applicationsRouter = router({
         });
       }
 
-      // Validate this is a Shopify template
-      if (environment.application.template?.slug !== "shopify") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "OAuth connect flow is currently only available for Shopify",
-        });
-      }
+      const templateSlug = environment.application.template?.slug;
 
-      // Clean up shop name (remove .myshopify.com if present)
-      const shopName = input.shop.replace(/\.myshopify\.com$/, "").toLowerCase();
+      // Handle Amazon FBA OAuth
+      if (templateSlug === "amazon-fba") {
+        const region = input.region || "na";
 
-      // Generate random state token
-      const state = randomUUID();
+        // Generate random state token
+        const state = randomUUID();
 
-      // Store OAuth state in database (10 minute expiry)
-      await ctx.tenant.db.oAuthState.create({
-        data: {
-          state,
-          environmentId: input.environmentId,
-          tenantId: ctx.tenant.tenantId,
-          shop: shopName,
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-        },
-      });
-
-      // Get Shopify Client ID from SST Resource
-      const shopifyClientId = (Resource as unknown as { ShopifyClientId?: { value: string } }).ShopifyClientId?.value;
-      if (!shopifyClientId) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Shopify OAuth is not configured",
-        });
-      }
-
-      // Get API base URL for redirect - use direct API Gateway URL to avoid DNS issues
-      const apiUrl = process.env.API_URL || "https://s8hv7plzi4.execute-api.us-east-1.amazonaws.com";
-      const redirectUri = `${apiUrl}/oauth/shopify/callback`;
-
-      // Shopify OAuth scopes - these should match what's configured in Shopify Partner Dashboard
-      const scopes = [
-        "read_products",
-        "read_orders",
-        "read_customers",
-        "read_inventory",
-        "read_fulfillments",
-        "read_shipping",
-        "read_analytics",
-        "read_reports",
-        "read_content",
-        "read_themes",
-        "read_locations",
-        "read_price_rules",
-        "read_discounts",
-      ].join(",");
-
-      // Build Shopify authorization URL
-      const authorizationUrl = new URL(`https://${shopName}.myshopify.com/admin/oauth/authorize`);
-      authorizationUrl.searchParams.set("client_id", shopifyClientId);
-      authorizationUrl.searchParams.set("scope", scopes);
-      authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-      authorizationUrl.searchParams.set("state", state);
-
-      await ctx.tenant.db.auditLog.create({
-        data: {
-          action: "application.oauth.initiated",
-          entityType: "ApplicationEnvironment",
-          entityId: input.environmentId,
-          userId: ctx.tenant.userId,
-          tenantId: ctx.tenant.tenantId,
-          metadata: {
-            shop: shopName,
-            applicationId: environment.applicationId,
+        // Store OAuth state in database with region metadata (10 minute expiry)
+        await ctx.tenant.db.oAuthState.create({
+          data: {
+            state,
+            environmentId: input.environmentId,
+            tenantId: ctx.tenant.tenantId,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+            metadata: { region },
           },
-        },
-      });
+        });
 
-      return {
-        authorizationUrl: authorizationUrl.toString(),
-        shop: shopName,
-      };
+        // Get Amazon Client ID from SST Resource
+        const amazonClientId = (Resource as unknown as { AmazonClientId?: { value: string } }).AmazonClientId?.value;
+        if (!amazonClientId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Amazon OAuth is not configured",
+          });
+        }
+
+        // Get API base URL for redirect
+        const apiUrl = process.env.API_URL || "https://api.sierramcp.com";
+        const redirectUri = `${apiUrl}/oauth/amazon/callback`;
+
+        // Map region to Seller Central domain
+        const sellerCentralDomains: Record<string, string> = {
+          na: "sellercentral.amazon.com",
+          eu: "sellercentral-europe.amazon.com",
+          fe: "sellercentral.amazon.co.jp",
+        };
+        const sellerCentralDomain = sellerCentralDomains[region] || sellerCentralDomains.na;
+
+        // Build Amazon authorization URL
+        // Amazon uses application_id instead of client_id for SP-API OAuth
+        const authorizationUrl = new URL(`https://${sellerCentralDomain}/apps/authorize/consent`);
+        authorizationUrl.searchParams.set("application_id", amazonClientId);
+        authorizationUrl.searchParams.set("state", state);
+        authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+        // Version is required for SP-API OAuth
+        authorizationUrl.searchParams.set("version", "beta");
+
+        await ctx.tenant.db.auditLog.create({
+          data: {
+            action: "application.oauth.initiated",
+            entityType: "ApplicationEnvironment",
+            entityId: input.environmentId,
+            userId: ctx.tenant.userId,
+            tenantId: ctx.tenant.tenantId,
+            metadata: {
+              region,
+              applicationId: environment.applicationId,
+              provider: "amazon-fba",
+            },
+          },
+        });
+
+        return {
+          authorizationUrl: authorizationUrl.toString(),
+          region,
+        };
+      }
+
+      // Handle Shopify OAuth (existing logic)
+      if (templateSlug === "shopify") {
+        if (!input.shop) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Shop name is required for Shopify OAuth",
+          });
+        }
+
+        // Clean up shop name (remove .myshopify.com if present)
+        const shopName = input.shop.replace(/\.myshopify\.com$/, "").toLowerCase();
+
+        // Generate random state token
+        const state = randomUUID();
+
+        // Store OAuth state in database (10 minute expiry)
+        await ctx.tenant.db.oAuthState.create({
+          data: {
+            state,
+            environmentId: input.environmentId,
+            tenantId: ctx.tenant.tenantId,
+            shop: shopName,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+          },
+        });
+
+        // Get Shopify Client ID from SST Resource
+        const shopifyClientId = (Resource as unknown as { ShopifyClientId?: { value: string } }).ShopifyClientId?.value;
+        if (!shopifyClientId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Shopify OAuth is not configured",
+          });
+        }
+
+        // Get API base URL for redirect - use direct API Gateway URL to avoid DNS issues
+        const apiUrl = process.env.API_URL || "https://s8hv7plzi4.execute-api.us-east-1.amazonaws.com";
+        const redirectUri = `${apiUrl}/oauth/shopify/callback`;
+
+        // Shopify OAuth scopes - these should match what's configured in Shopify Partner Dashboard
+        const scopes = [
+          "read_products",
+          "read_orders",
+          "read_customers",
+          "read_inventory",
+          "read_fulfillments",
+          "read_shipping",
+          "read_analytics",
+          "read_reports",
+          "read_content",
+          "read_themes",
+          "read_locations",
+          "read_price_rules",
+          "read_discounts",
+        ].join(",");
+
+        // Build Shopify authorization URL
+        const authorizationUrl = new URL(`https://${shopName}.myshopify.com/admin/oauth/authorize`);
+        authorizationUrl.searchParams.set("client_id", shopifyClientId);
+        authorizationUrl.searchParams.set("scope", scopes);
+        authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+        authorizationUrl.searchParams.set("state", state);
+
+        await ctx.tenant.db.auditLog.create({
+          data: {
+            action: "application.oauth.initiated",
+            entityType: "ApplicationEnvironment",
+            entityId: input.environmentId,
+            userId: ctx.tenant.userId,
+            tenantId: ctx.tenant.tenantId,
+            metadata: {
+              shop: shopName,
+              applicationId: environment.applicationId,
+            },
+          },
+        });
+
+        return {
+          authorizationUrl: authorizationUrl.toString(),
+          shop: shopName,
+        };
+      }
+
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "OAuth connect flow is only available for Shopify and Amazon FBA",
+      });
     }),
 
   /**

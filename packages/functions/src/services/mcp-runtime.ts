@@ -131,13 +131,23 @@ async function getCredentials(
 
 /**
  * Build authorization headers based on credential type
+ *
+ * @param credentials - Credential configuration from Secrets Manager
+ * @param toolAuth - Tool's auth configuration
+ * @param provider - Optional provider slug for provider-specific header formats
  */
 function buildAuthHeaders(
   credentials: CredentialConfig | null,
-  toolAuth: { type: string }
+  toolAuth: { type: string },
+  provider?: string
 ): Record<string, string> {
   if (!credentials || toolAuth.type === "none") {
     return {};
+  }
+
+  // Amazon SP-API uses x-amz-access-token instead of Authorization: Bearer
+  if (provider === "amazon-fba" && credentials.oauth2AccessToken) {
+    return { "x-amz-access-token": credentials.oauth2AccessToken };
   }
 
   switch (credentials.type) {
