@@ -460,10 +460,23 @@ export default $config({
     const amazonClientId = new sst.Secret("AmazonClientId");
     const amazonClientSecret = new sst.Secret("AmazonClientSecret");
 
+    // ============================================
+    // Google Ads OAuth Secrets
+    // ============================================
+    const googleAdsClientId = new sst.Secret("GoogleAdsClientId");
+    const googleAdsClientSecret = new sst.Secret("GoogleAdsClientSecret");
+    const googleAdsDeveloperToken = new sst.Secret("GoogleAdsDeveloperToken");
+
+    // ============================================
+    // ServiceTitan OAuth Secrets
+    // ============================================
+    const serviceTitanClientId = new sst.Secret("ServiceTitanClientId");
+    const serviceTitanClientSecret = new sst.Secret("ServiceTitanClientSecret");
+
     const web = new sst.aws.Nextjs("Web", {
       path: "apps/web",
       vpc,
-      link: [database, uploads, userPool, jobQueue, documentQueue, openaiApiKey, anthropicApiKey, workosApiKey, workosClientId, workosCookiePassword, workosRedirectUri, nextAuthSecret, nextAuthUrl, shopifyClientId, shopifyClientSecret, amazonClientId, amazonClientSecret],
+      link: [database, uploads, userPool, jobQueue, documentQueue, openaiApiKey, anthropicApiKey, workosApiKey, workosClientId, workosCookiePassword, workosRedirectUri, nextAuthSecret, nextAuthUrl, shopifyClientId, shopifyClientSecret, amazonClientId, amazonClientSecret, googleAdsClientId, googleAdsClientSecret, googleAdsDeveloperToken, serviceTitanClientId, serviceTitanClientSecret],
       server: {
         timeout: "60 seconds", // Increased for LLM API calls
         memory: "1024 MB",
@@ -562,7 +575,7 @@ export default $config({
     // ============================================
     const api = new sst.aws.ApiGatewayV2("Api", {
       vpc,
-      link: [database, uploads, shopifyClientId, shopifyClientSecret, amazonClientId, amazonClientSecret],
+      link: [database, uploads, shopifyClientId, shopifyClientSecret, amazonClientId, amazonClientSecret, googleAdsClientId, googleAdsClientSecret, googleAdsDeveloperToken, serviceTitanClientId, serviceTitanClientSecret],
       domain: $app.stage === "production"
         ? {
             name: "api.sierramcp.com",
@@ -822,6 +835,108 @@ export default $config({
     });
 
     api.route("GET /oauth/amazon/callback", amazonOAuthCallback.arn);
+
+    // ============================================
+    // Google Ads OAuth Callback Function
+    // ============================================
+    const googleAdsOAuthCallback = new sst.aws.Function("GoogleAdsOAuthCallback", {
+      handler: "packages/functions/src/api/oauth/google-ads-callback.handler",
+      link: [database, googleAdsClientId, googleAdsClientSecret],
+      vpc,
+      timeout: "30 seconds",
+      memory: "256 MB",
+      permissions: [
+        {
+          actions: [
+            "secretsmanager:CreateSecret",
+            "secretsmanager:UpdateSecret",
+            "secretsmanager:GetSecretValue",
+            "secretsmanager:TagResource",
+          ],
+          resources: ["arn:aws:secretsmanager:*:*:secret:gatemcp/*"],
+        },
+      ],
+      environment: {
+        GOOGLE_ADS_CLIENT_ID: googleAdsClientId.value,
+        GOOGLE_ADS_CLIENT_SECRET: googleAdsClientSecret.value,
+        APP_URL: $app.stage === "production"
+          ? "https://app.sierramcp.com"
+          : "http://localhost:3000",
+        API_URL: $app.stage === "production"
+          ? "https://api.sierramcp.com"
+          : undefined,
+        PRISMA_QUERY_ENGINE_LIBRARY: "/var/task/libquery_engine-rhel-openssl-3.0.x.so.node",
+      },
+      nodejs: {
+        esbuild: {
+          external: [],
+          loader: { ".node": "copy" },
+        },
+      },
+      copyFiles: [
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node",
+          to: "libquery_engine-rhel-openssl-3.0.x.so.node",
+        },
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/schema.prisma",
+          to: "schema.prisma",
+        },
+      ],
+    });
+
+    api.route("GET /oauth/google-ads/callback", googleAdsOAuthCallback.arn);
+
+    // ============================================
+    // ServiceTitan OAuth Callback Function
+    // ============================================
+    const serviceTitanOAuthCallback = new sst.aws.Function("ServiceTitanOAuthCallback", {
+      handler: "packages/functions/src/api/oauth/servicetitan-callback.handler",
+      link: [database, serviceTitanClientId, serviceTitanClientSecret],
+      vpc,
+      timeout: "30 seconds",
+      memory: "256 MB",
+      permissions: [
+        {
+          actions: [
+            "secretsmanager:CreateSecret",
+            "secretsmanager:UpdateSecret",
+            "secretsmanager:GetSecretValue",
+            "secretsmanager:TagResource",
+          ],
+          resources: ["arn:aws:secretsmanager:*:*:secret:gatemcp/*"],
+        },
+      ],
+      environment: {
+        SERVICETITAN_CLIENT_ID: serviceTitanClientId.value,
+        SERVICETITAN_CLIENT_SECRET: serviceTitanClientSecret.value,
+        APP_URL: $app.stage === "production"
+          ? "https://app.sierramcp.com"
+          : "http://localhost:3000",
+        API_URL: $app.stage === "production"
+          ? "https://api.sierramcp.com"
+          : undefined,
+        PRISMA_QUERY_ENGINE_LIBRARY: "/var/task/libquery_engine-rhel-openssl-3.0.x.so.node",
+      },
+      nodejs: {
+        esbuild: {
+          external: [],
+          loader: { ".node": "copy" },
+        },
+      },
+      copyFiles: [
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node",
+          to: "libquery_engine-rhel-openssl-3.0.x.so.node",
+        },
+        {
+          from: "node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma/client/schema.prisma",
+          to: "schema.prisma",
+        },
+      ],
+    });
+
+    api.route("GET /oauth/servicetitan/callback", serviceTitanOAuthCallback.arn);
 
     // ============================================
     // Metering Cron Jobs

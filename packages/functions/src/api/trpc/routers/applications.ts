@@ -1370,6 +1370,107 @@ export const applicationsRouter = router({
         };
       }
 
+      // Handle Google Ads OAuth
+      if (templateSlug === "google-ads") {
+        const state = randomUUID();
+
+        await ctx.tenant.db.oAuthState.create({
+          data: {
+            state,
+            environmentId: input.environmentId,
+            tenantId: ctx.tenant.tenantId,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+          },
+        });
+
+        const googleAdsClientId = (Resource as unknown as { GoogleAdsClientId?: { value: string } }).GoogleAdsClientId?.value;
+        if (!googleAdsClientId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Google Ads OAuth is not configured",
+          });
+        }
+
+        const apiUrl = process.env.API_URL || "https://api.sierramcp.com";
+        const redirectUri = `${apiUrl}/oauth/google-ads/callback`;
+
+        const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+        authorizationUrl.searchParams.set("client_id", googleAdsClientId);
+        authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+        authorizationUrl.searchParams.set("response_type", "code");
+        authorizationUrl.searchParams.set("scope", "https://www.googleapis.com/auth/adwords");
+        authorizationUrl.searchParams.set("state", state);
+        authorizationUrl.searchParams.set("access_type", "offline");
+        authorizationUrl.searchParams.set("prompt", "consent");
+
+        await ctx.tenant.db.auditLog.create({
+          data: {
+            action: "application.oauth.initiated",
+            entityType: "ApplicationEnvironment",
+            entityId: input.environmentId,
+            userId: ctx.tenant.userId,
+            tenantId: ctx.tenant.tenantId,
+            metadata: {
+              applicationId: environment.applicationId,
+              provider: "google-ads",
+            },
+          },
+        });
+
+        return {
+          authorizationUrl: authorizationUrl.toString(),
+        };
+      }
+
+      // Handle ServiceTitan OAuth
+      if (templateSlug === "servicetitan") {
+        const state = randomUUID();
+
+        await ctx.tenant.db.oAuthState.create({
+          data: {
+            state,
+            environmentId: input.environmentId,
+            tenantId: ctx.tenant.tenantId,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+          },
+        });
+
+        const serviceTitanClientId = (Resource as unknown as { ServiceTitanClientId?: { value: string } }).ServiceTitanClientId?.value;
+        if (!serviceTitanClientId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "ServiceTitan OAuth is not configured",
+          });
+        }
+
+        const apiUrl = process.env.API_URL || "https://api.sierramcp.com";
+        const redirectUri = `${apiUrl}/oauth/servicetitan/callback`;
+
+        const authorizationUrl = new URL("https://auth.servicetitan.io/connect/authorize");
+        authorizationUrl.searchParams.set("client_id", serviceTitanClientId);
+        authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+        authorizationUrl.searchParams.set("response_type", "code");
+        authorizationUrl.searchParams.set("state", state);
+
+        await ctx.tenant.db.auditLog.create({
+          data: {
+            action: "application.oauth.initiated",
+            entityType: "ApplicationEnvironment",
+            entityId: input.environmentId,
+            userId: ctx.tenant.userId,
+            tenantId: ctx.tenant.tenantId,
+            metadata: {
+              applicationId: environment.applicationId,
+              provider: "servicetitan",
+            },
+          },
+        });
+
+        return {
+          authorizationUrl: authorizationUrl.toString(),
+        };
+      }
+
       // Handle Shopify OAuth (existing logic)
       if (templateSlug === "shopify") {
         if (!input.shop) {
@@ -1455,7 +1556,7 @@ export const applicationsRouter = router({
 
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "OAuth connect flow is only available for Shopify and Amazon FBA",
+        message: "OAuth connect flow is only available for Shopify, Amazon FBA, Google Ads, and ServiceTitan",
       });
     }),
 
